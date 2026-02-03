@@ -18,7 +18,8 @@ from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATABASES_URL = "postgresql://postgres:sWEQzLSAYFrdlMdaEedOZVLaKhpeHndv@shinkansen.proxy.rlwy.net:44179/railway" 
+DATABASE_URL = "postgresql://postgres:sWEQzLSAYFrdlMdaEedOZVLaKhpeHndv@postgres.railway.internal:5432/railway"
+
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
