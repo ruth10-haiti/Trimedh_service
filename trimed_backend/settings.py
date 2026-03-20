@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 from datetime import timedelta
+import dj_database_url
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,12 +23,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-f4f5j7s&!r4j@y+qo(mc=l@039&%q&41+3rr_$dj51w5$&e_0j')
+SECRET_KEY = config('SECRET_KEY', default='django-insecure-f4f5j7s&!r4j@y+qo(mc=l@039&%q&41+3rr_$dj51w5$&e_0j')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0,10.0.2.2,*.railway.app').split(',')
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0,10.0.2.2,*.railway.app', cast=lambda v: [s.strip() for s in v.split(',')])
 
 
 # Application definition
@@ -99,36 +101,18 @@ WSGI_APPLICATION = 'trimed_backend.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 # Database configuration
-if os.environ.get('RAILWAY_ENVIRONMENT'):
-    # Production (Railway)
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': 'railway',
-            'USER': 'postgres',
-            'PASSWORD': 'sWEQzLSAYFrdlMdaEedOZVLaKhpeHndv',
-            'HOST': 'postgres.railway.internal',
-            'PORT': '5432',
-        }
-    }
-else:
-    # Development (Local)
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': 'Trimedh_BD',
-            'USER': 'postgres',
-            'PASSWORD': '',
-            'HOST': 'localhost',
-            'PORT': '5432',
-        }
-    }
+DATABASES = {
+    'default': dj_database_url.config(
+        default=config('DATABASE_URL', default='postgresql://localhost:5432/Trimedh_BD'),
+        conn_max_age=600
+    )
+}
 
 
 # Modèle d'utilisateur personnalisé
 AUTH_USER_MODEL = 'comptes.Utilisateur'
-# CORS
-CORS_ORIGIN_ALLOW_ALL = True
+# CORS Configuration
+CORS_ALLOW_ALL_ORIGINS = DEBUG
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -184,15 +168,12 @@ USE_I18N = True
 
 USE_TZ = True
 
-# CORS Configuration
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    CORS_ALLOWED_ORIGINS = [
-        "https://your-frontend-domain.com",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ]
+if not DEBUG:
+    CORS_ALLOWED_ORIGINS = config(
+        'CORS_ALLOWED_ORIGINS',
+        default='http://localhost:3000,http://127.0.0.1:3000',
+        cast=lambda v: [s.strip() for s in v.split(',')]
+    )
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -200,10 +181,13 @@ CORS_ALLOW_CREDENTIALS = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# Configuration WhiteNoise
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
