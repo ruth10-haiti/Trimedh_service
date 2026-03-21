@@ -18,7 +18,7 @@ constantly==23.10.4
 cryptography==46.0.3
 daphne==4.1.0
 dj-database-url==3.1.0
-Django==4.2.27
+Django==5.2.4
 django-cors-headers==4.9.0
 django-crispy-forms==2.4
 django-extensions==4.1
@@ -27,7 +27,7 @@ django-redis==5.4.0
 django-sendgrid-v5==0.8.1
 django-widget-tweaks==1.5.0
 djangorestframework==3.16.1
-djangorestframework_simplejwt==5.5.1
+djangorestframework-simplejwt==5.5.1
 drf-yasg==1.21.14
 future==1.0.0
 gunicorn==21.2.0
@@ -64,7 +64,6 @@ pytz==2025.2
 PyYAML==6.0.3
 redis==5.0.1
 reportlab==4.1.0
-rest-framework-simplejwt==0.0.2
 sendgrid==6.12.5
 service-identity==24.2.0
 setuptools==82.0.1
