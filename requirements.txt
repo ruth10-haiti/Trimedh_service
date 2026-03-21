@@ -67,7 +67,7 @@ reportlab==4.1.0
 rest-framework-simplejwt==0.0.2
 sendgrid==6.12.5
 service-identity==24.2.0
-setuptools==80.9.0
+setuptools==82.0.1
 six==1.17.0
 sqlparse==0.5.5
 Twisted==25.5.0
@@ -79,6 +79,6 @@ uritemplate==4.2.0
 vine==5.1.0
 wcwidth==0.2.14
 Werkzeug==3.1.4
-wheel==0.45.1
+wheel==0.46.3
 whitenoise==6.11.0
 zope.interface==8.1.1
