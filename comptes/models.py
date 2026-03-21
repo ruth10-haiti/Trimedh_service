@@ -1,4 +1,3 @@
-# models.py
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils import timezone
@@ -8,6 +7,7 @@ class GestionnaireUtilisateur(BaseUserManager):
     """Gestionnaire personnalisé pour les utilisateurs"""
     
     def creer_utilisateur(self, email, nom_complet, mot_de_passe=None, **extra_fields):
+        """Crée un utilisateur normal (méthode en français)"""
         if not email:
             raise ValueError('L\'email est obligatoire')
         
@@ -22,11 +22,28 @@ class GestionnaireUtilisateur(BaseUserManager):
         return utilisateur
     
     def creer_superutilisateur(self, email, nom_complet, mot_de_passe=None, **extra_fields):
+        """Crée un superutilisateur (méthode en français)"""
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('role', 'admin-systeme')
         
+        # Vérifications
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('Le superutilisateur doit avoir is_staff=True.')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('Le superutilisateur doit avoir is_superuser=True.')
+        
         return self.creer_utilisateur(email, nom_complet, mot_de_passe, **extra_fields)
+    
+    # Méthodes requises par Django (en anglais)
+    def create_user(self, email, nom_complet, password=None, **extra_fields):
+        """Alias pour creer_utilisateur (requis par Django)"""
+        return self.creer_utilisateur(email, nom_complet, password, **extra_fields)
+    
+    def create_superuser(self, email, nom_complet, password=None, **extra_fields):
+        """Alias pour creer_superutilisateur (requis par Django)"""
+        return self.creer_superutilisateur(email, nom_complet, password, **extra_fields)
+
 
 class Utilisateur(AbstractBaseUser, PermissionsMixin):
     """
@@ -71,6 +88,7 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
     # Champs Django requis
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    is_superuser = models.BooleanField(default=False)  # AJOUT OBLIGATOIRE
     derniere_connexion = models.DateTimeField(null=True, blank=True)
     
     # Relations spécifiques (pour les signaux)
