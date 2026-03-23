@@ -2,6 +2,7 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.utils import timezone
+from django.db import transaction
 from .models import Utilisateur
 
 class UtilisateurSerializer(serializers.ModelSerializer):
@@ -43,34 +44,103 @@ class UtilisateurSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Rôle invalide. Choix: {roles_autorises}")
         return value
 
-class InscriptionSerializer(serializers.ModelSerializer):
+
+class InscriptionSerializer(serializers.Serializer):
+    """
+    Serializer personnalisé pour l'inscription qui gère la création
+    du Tenant pour les propriétaires d'hôpitaux
+    """
+    # Champs utilisateur
+    nom_complet = serializers.CharField(required=True, min_length=3)
+    email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, required=True, min_length=8)
     confirm_password = serializers.CharField(write_only=True, required=True)
+    role = serializers.ChoiceField(choices=Utilisateur.Role.choices, default='patient')
     
-    class Meta:
-        model = Utilisateur
-        fields = ['nom_complet', 'email', 'password', 'confirm_password', 'role', 'hopital']
+    # Champs tenant (optionnel)
+    hopital_data = serializers.DictField(required=False, allow_null=True)
+    
+    def validate_email(self, value):
+        """Vérifier que l'email n'existe pas déjà"""
+        if Utilisateur.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Cet email est déjà utilisé")
+        return value
     
     def validate(self, data):
+        """Validation croisée des données"""
+        # Vérifier que les mots de passe correspondent
         if data['password'] != data['confirm_password']:
             raise serializers.ValidationError({
-                'password': 'Les mots de passe ne correspondent pas'
+                'confirm_password': 'Les mots de passe ne correspondent pas'
             })
+        
+        # Vérifier que hopital_data est présent pour les propriétaires d'hôpitaux
+        if data.get('role') == 'proprietaire-hopital':
+            if not data.get('hopital_data'):
+                raise serializers.ValidationError({
+                    'hopital_data': 'Les données de l\'hôpital sont requises pour un propriétaire d\'hôpital'
+                })
+            
+            # Validation des champs requis pour le tenant
+            hopital_data = data.get('hopital_data', {})
+            if not hopital_data.get('nom'):
+                raise serializers.ValidationError({
+                    'hopital_data.nom': 'Le nom de l\'hôpital est requis'
+                })
+        
         return data
     
+    @transaction.atomic
     def create(self, validated_data):
-        validated_data.pop('confirm_password')
+        """Création de l'utilisateur et du tenant (si applicable)"""
+        # Extraire les données
+        hopital_data = validated_data.pop('hopital_data', None)
+        validated_data.pop('confirm_password', None)  # Supprimer confirm_password
         password = validated_data.pop('password')
         
+        # Créer l'utilisateur
         utilisateur = Utilisateur.objects.creer_utilisateur(
             email=validated_data['email'],
             nom_complet=validated_data['nom_complet'],
             mot_de_passe=password,
             role=validated_data.get('role', 'patient'),
-            hopital=validated_data.get('hopital')
+            hopital=None  # Sera mis à jour après création du tenant
         )
         
+        # Créer le Tenant si hopital_data est présent et rôle proprietaire-hopital
+        if hopital_data and utilisateur.role == 'proprietaire-hopital':
+            try:
+                from gestion_tenants.models import Tenant
+                
+                # Créer le tenant
+                tenant = Tenant.objects.create(
+                    nom=hopital_data.get('nom'),
+                    adresse=hopital_data.get('adresse', ''),
+                    telephone=hopital_data.get('telephone', ''),
+                    email_professionnel=hopital_data.get('email_professionnel', ''),
+                    directeur=hopital_data.get('directeur', validated_data.get('nom_complet')),
+                    nombre_de_lits=hopital_data.get('nombre_de_lits', 1),
+                    numero_enregistrement=hopital_data.get('numero_enregistrement', ''),
+                    statut=hopital_data.get('statut', 'actif'),
+                    type_abonnement=hopital_data.get('type_abonnement', 'basic'),
+                    statut_verification_document=hopital_data.get('statut_verification_document', 'en_attente'),
+                    proprietaire_utilisateur=utilisateur,
+                    cree_par_utilisateur=utilisateur,
+                )
+                
+                # Associer l'utilisateur au tenant
+                utilisateur.hopital = tenant
+                utilisateur.save(update_fields=['hopital'])
+                
+            except Exception as e:
+                # En cas d'erreur, supprimer l'utilisateur pour éviter les orphelins
+                utilisateur.delete()
+                raise serializers.ValidationError({
+                    'hopital_data': f'Erreur lors de la création de l\'hôpital: {str(e)}'
+                })
+        
         return utilisateur
+
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -99,6 +169,7 @@ class LoginSerializer(serializers.Serializer):
         
         return data
 
+
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(required=True)
     new_password = serializers.CharField(required=True, min_length=8)
@@ -110,6 +181,7 @@ class ChangePasswordSerializer(serializers.Serializer):
                 'confirm_password': 'Les nouveaux mots de passe ne correspondent pas'
             })
         return data
+
 
 class UpdateProfileSerializer(serializers.ModelSerializer):
     class Meta:
