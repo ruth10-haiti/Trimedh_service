@@ -133,8 +133,7 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     
-    # CORRECTION: Spécifier le champ ID à utiliser
-    'USER_ID_FIELD': 'id',  # Utiliser 'id' au lieu de 'utilisateur_id'
+    'USER_ID_FIELD': 'utilisateur_id',  # ← Changer de 'id' à 'utilisateur_id'
     'USER_ID_CLAIM': 'user_id',
     
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
