@@ -59,7 +59,10 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
         PERSONNEL = 'personnel', 'Personnel'
         PATIENT = 'patient', 'Patient'
     
-    utilisateur_id = models.AutoField(primary_key=True)
+    # CORRECTION: Ajouter un champ 'id' pour SimpleJWT
+    id = models.AutoField(primary_key=True)  # Django standard
+    utilisateur_id = models.IntegerField(unique=True, null=True, blank=True)  # Garder pour compatibilité
+    
     nom_complet = models.CharField(max_length=255)
     email = models.EmailField(
         max_length=100,
@@ -88,7 +91,7 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
     # Champs Django requis
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
-    is_superuser = models.BooleanField(default=False)  # AJOUT OBLIGATOIRE
+    is_superuser = models.BooleanField(default=False)
     derniere_connexion = models.DateTimeField(null=True, blank=True)
     
     # Relations spécifiques (pour les signaux)
@@ -110,9 +113,14 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
         return f"{self.nom_complet} ({self.get_role_display()})"
     
     def save(self, *args, **kwargs):
+        # CORRECTION: Assurer que utilisateur_id est égal à id pour compatibilité
         if not self.pk:
             self.cree_le = timezone.now()
         super().save(*args, **kwargs)
+        # Après sauvegarde, synchroniser utilisateur_id avec id
+        if not self.utilisateur_id:
+            self.utilisateur_id = self.id
+            super().save(update_fields=['utilisateur_id'])
     
     class Meta:
         db_table = 'utilisateur'
@@ -122,4 +130,5 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
             models.Index(fields=['email']),
             models.Index(fields=['role']),
             models.Index(fields=['hopital']),
+            models.Index(fields=['id']),  # Ajouter index sur id
         ]

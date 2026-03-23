@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 from django_filters.rest_framework import DjangoFilterBackend
 from django.contrib.auth import authenticate
+from django.conf import settings
 from .models import Utilisateur
 from .serializers import (
     UtilisateurSerializer, InscriptionSerializer,
@@ -44,30 +45,38 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """
-        Filtrer les utilisateurs selon les permissions
+        CORRECTION: Filtrer les utilisateurs selon les permissions
+        avec vérification pour Swagger
         """
-        queryset = super().get_queryset()
+        # CORRECTION 1: Vérifier si c'est pour la génération Swagger
+        if getattr(self, 'swagger_fake_view', False):
+            return Utilisateur.objects.none()
+        
         user = self.request.user
         
+        # CORRECTION 2: Vérifier si l'utilisateur est authentifié
+        if not user.is_authenticated:
+            return Utilisateur.objects.none()
+        
         # Admins système voient tout
-        if user.role == 'admin-systeme':
-            return queryset
+        if hasattr(user, 'role') and user.role == 'admin-systeme':
+            return Utilisateur.objects.all()
         
         # Propriétaires voient les utilisateurs de leur tenant
-        if user.role == 'proprietaire-hopital' and user.hopital:
-            return queryset.filter(hopital=user.hopital)
+        if hasattr(user, 'role') and user.role == 'proprietaire-hopital' and hasattr(user, 'hopital') and user.hopital:
+            return Utilisateur.objects.filter(hopital=user.hopital)
         
         # Médecins voient les utilisateurs de leur tenant (sauf patients)
-        if user.role == 'medecin' and user.hopital:
-            return queryset.filter(hopital=user.hopital).exclude(role='patient')
+        if hasattr(user, 'role') and user.role == 'medecin' and hasattr(user, 'hopital') and user.hopital:
+            return Utilisateur.objects.filter(hopital=user.hopital).exclude(role='patient')
         
         # Personnel voient les utilisateurs de leur tenant (sauf patients)
-        if user.role in ['personnel', 'secretaire', 'infirmier'] and user.hopital:
-            return queryset.filter(hopital=user.hopital).exclude(role='patient')
+        if hasattr(user, 'role') and user.role in ['personnel', 'secretaire', 'infirmier'] and hasattr(user, 'hopital') and user.hopital:
+            return Utilisateur.objects.filter(hopital=user.hopital).exclude(role='patient')
         
         # Patients ne voient que leur propre profil
-        if user.role == 'patient':
-            return queryset.filter(pk=user.pk)
+        if hasattr(user, 'role') and user.role == 'patient':
+            return Utilisateur.objects.filter(pk=user.pk)
         
         return Utilisateur.objects.none()
     
@@ -101,7 +110,7 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
         
         # Vérifier les permissions
         if utilisateur != request.user and not (
-            request.user.role in ['admin-systeme', 'proprietaire-hopital']
+            hasattr(request.user, 'role') and request.user.role in ['admin-systeme', 'proprietaire-hopital']
         ):
             return Response(
                 {'error': 'Vous n\'avez pas la permission de modifier ce mot de passe'},
@@ -131,7 +140,7 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
         utilisateur = self.get_object()
         
         # Vérifier les permissions
-        if not request.user.role in ['admin-systeme', 'proprietaire-hopital']:
+        if not (hasattr(request.user, 'role') and request.user.role in ['admin-systeme', 'proprietaire-hopital']):
             return Response(
                 {'error': 'Vous n\'avez pas la permission de modifier cet utilisateur'},
                 status=status.HTTP_403_FORBIDDEN
@@ -157,17 +166,29 @@ class LoginView(APIView):
         if serializer.is_valid():
             utilisateur = serializer.validated_data['utilisateur']
             
+            # CORRECTION: Vérifier que l'utilisateur a un ID avant de générer le token
+            if not utilisateur.pk:
+                # Si l'utilisateur n'a pas d'ID, le sauvegarder
+                utilisateur.save()
+            
             # Générer les tokens JWT
-            refresh = RefreshToken.for_user(utilisateur)
-            
-            # Sérialiser les données utilisateur
-            user_serializer = UtilisateurSerializer(utilisateur)
-            
-            return Response({
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-                'utilisateur': user_serializer.data
-            })
+            try:
+                refresh = RefreshToken.for_user(utilisateur)
+                
+                # Sérialiser les données utilisateur
+                user_serializer = UtilisateurSerializer(utilisateur)
+                
+                return Response({
+                    'refresh': str(refresh),
+                    'access': str(refresh.access_token),
+                    'utilisateur': user_serializer.data
+                })
+            except AttributeError as e:
+                # CORRECTION: Gérer l'erreur si le modèle n'a pas le bon champ ID
+                return Response(
+                    {'error': f'Erreur de configuration du token: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -202,17 +223,29 @@ class InscriptionView(APIView):
         serializer = InscriptionSerializer(data=request.data)
         
         if serializer.is_valid():
+            # CORRECTION: Sauvegarder d'abord l'utilisateur pour avoir un ID
             utilisateur = serializer.save()
             
-            # Générer les tokens JWT
-            refresh = RefreshToken.for_user(utilisateur)
-            user_serializer = UtilisateurSerializer(utilisateur)
+            # CORRECTION: Forcer la sauvegarde pour s'assurer que l'utilisateur a un ID
+            if not utilisateur.pk:
+                utilisateur.save()
             
-            return Response({
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-                'utilisateur': user_serializer.data,
-                'message': 'Inscription réussie'
-            }, status=status.HTTP_201_CREATED)
+            # Générer les tokens JWT
+            try:
+                refresh = RefreshToken.for_user(utilisateur)
+                user_serializer = UtilisateurSerializer(utilisateur)
+                
+                return Response({
+                    'refresh': str(refresh),
+                    'access': str(refresh.access_token),
+                    'utilisateur': user_serializer.data,
+                    'message': 'Inscription réussie'
+                }, status=status.HTTP_201_CREATED)
+            except AttributeError as e:
+                # CORRECTION: Gérer l'erreur si le modèle n'a pas le bon champ ID
+                return Response(
+                    {'error': f'Erreur lors de la création du token: {str(e)}'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
