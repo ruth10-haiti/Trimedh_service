@@ -1,47 +1,40 @@
 from rest_framework import permissions
 
-class PeutVoirConsultation(permissions.BasePermission):
+class PeutGererMedicaments(permissions.BasePermission):
     """
-    Permission pour voir une consultation
-    """
-    
-    def has_object_permission(self, request, view, obj):
-        # Les patients ne voient que leurs consultations
-        if request.user.role == 'patient':
-            return hasattr(request.user, 'patient_lie') and request.user.patient_lie == obj.patient
-        
-        # Les médecins voient leurs consultations
-        if request.user.role == 'medecin':
-            return hasattr(request.user, 'medecin_lie') and request.user.medecin_lie == obj.medecin
-        
-        # Le personnel voit toutes les consultations de leur tenant
-        if request.user.role in ['personnel', 'secretaire', 'infirmier']:
-            return request.user.hopital == obj.tenant
-        
-        return False
-
-class PeutCreerConsultation(permissions.BasePermission):
-    """
-    Permission pour créer une consultation
+    Permission pour gérer les médicaments
     """
     
     def has_permission(self, request, view):
-        # Seuls les médecins et personnel peuvent créer des consultations
-        return request.user.role in ['medecin', 'personnel', 'secretaire', 'infirmier']
-
-class PeutVoirOrdonnance(permissions.BasePermission):
-    """
-    Permission pour voir une ordonnance
-    """
+        if not request.user.is_authenticated:
+            return False
+        return hasattr(request.user, 'role') and request.user.role in ['personnel', 'secretaire', 'infirmier', 'medecin', 'proprietaire-hopital', 'admin-systeme']
     
     def has_object_permission(self, request, view, obj):
-        # Les patients ne voient que leurs ordonnances
-        if request.user.role == 'patient':
-            return obj.patient.utilisateur == request.user
+        return self.has_permission(request, view)
+
+
+class PeutModifierStock(permissions.BasePermission):
+    """
+    Permission pour modifier le stock
+    """
+    
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        return hasattr(request.user, 'role') and request.user.role in ['personnel', 'infirmier', 'proprietaire-hopital', 'admin-systeme']
+    
+    def has_object_permission(self, request, view, obj):
+        if not request.user.is_authenticated:
+            return False
         
-        # Les médecins voient leurs ordonnances
-        if request.user.role == 'medecin':
-            return obj.medecin.utilisateur == request.user
+        # Admin système peut tout modifier
+        if hasattr(request.user, 'role') and request.user.role == 'admin-systeme':
+            return True
         
-        # Le personnel voit toutes les ordonnances de leur tenant
-        return request.user.hopital == obj.tenant
+        # Propriétaire peut modifier le stock de son hôpital
+        if hasattr(request.user, 'role') and request.user.role == 'proprietaire-hopital':
+            return hasattr(obj, 'hopital') and obj.hopital == request.user.hopital
+        
+        # Personnel peut modifier le stock de son hôpital
+        return hasattr(request.user, 'hopital') and hasattr(obj, 'hopital') and obj.hopital == request.user.hopital
