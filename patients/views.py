@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -19,7 +19,7 @@ from .serializers import (
 )
 from comptes.permissions import (
     EstMedecin, EstPersonnel, EstPatient,
-    EstDansMemesTenant
+    EstDansMemesTenant, EstProprietaireHopital, EstAdminSysteme
 )
 
 
@@ -27,7 +27,7 @@ class PatientViewSet(viewsets.ModelViewSet):
     """
     ViewSet pour la gestion des patients
     """
-    queryset = Patient.objects.all().order_by('-cree_le')  # CORRECTION: Ajouter order_by
+    queryset = Patient.objects.all().order_by('-cree_le')
     serializer_class = PatientSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['sexe', 'hopital']
@@ -36,14 +36,20 @@ class PatientViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         """
-        Permissions personnalisées selon l'action
+        CORRECTION: Permissions personnalisées selon l'action
+        Permettre à tout utilisateur authentifié de voir les patients
         """
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel]
+        if self.action == 'list':
+            # Tout utilisateur authentifié peut voir la liste (filtrée ensuite)
+            permission_classes = [IsAuthenticated]
         elif self.action == 'retrieve':
-            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel | EstPatient]
-        else:  # list
-            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel]
+            # Tout utilisateur authentifié peut voir un patient (filtré ensuite)
+            permission_classes = [IsAuthenticated]
+        elif self.action in ['create', 'update', 'partial_update', 'destroy']:
+            # Seuls les médecins, personnel, propriétaires et admin peuvent modifier
+            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel | EstProprietaireHopital | EstAdminSysteme]
+        else:
+            permission_classes = [IsAuthenticated]
         return [permission() for permission in permission_classes]
     
     def get_serializer_class(self):
@@ -56,56 +62,58 @@ class PatientViewSet(viewsets.ModelViewSet):
         """
         CORRECTION: Filtrer les patients selon les permissions avec vérification Swagger
         """
-        # CORRECTION: Vérifier si c'est pour la génération Swagger
+        # Vérifier si c'est pour la génération Swagger
         if getattr(self, 'swagger_fake_view', False):
             return Patient.objects.none()
         
         queryset = super().get_queryset()
         user = self.request.user
         
-        # CORRECTION: Vérifier si l'utilisateur est authentifié
+        # Vérifier si l'utilisateur est authentifié
         if not user.is_authenticated:
             return Patient.objects.none()
         
+        # Admin système voit tout
+        if hasattr(user, 'role') and user.role == 'admin-systeme':
+            return queryset
+        
         # Les patients ne voient que leur propre dossier
-        if hasattr(user, 'role') and user.role == 'patient' and hasattr(user, 'patient_lie'):
-            return queryset.filter(pk=user.patient_lie.pk)
+        if hasattr(user, 'role') and user.role == 'patient':
+            if hasattr(user, 'patient_lie') and user.patient_lie:
+                return queryset.filter(pk=user.patient_lie.pk)
+            return Patient.objects.none()
         
-        # CORRECTION: Filtrer par tenant avec hasattr
+        # Propriétaire d'hôpital voit les patients de son hôpital
+        if hasattr(user, 'role') and user.role == 'proprietaire-hopital':
+            if hasattr(user, 'hopital') and user.hopital:
+                return queryset.filter(hopital=user.hopital)
+            return Patient.objects.none()
+        
+        # Médecins voient les patients de leur hôpital
+        if hasattr(user, 'role') and user.role == 'medecin':
+            if hasattr(user, 'hopital') and user.hopital:
+                return queryset.filter(hopital=user.hopital)
+            return Patient.objects.none()
+        
+        # Personnel (infirmier, secrétaire) voit les patients de leur hôpital
+        if hasattr(user, 'role') and user.role in ['infirmier', 'secretaire', 'personnel']:
+            if hasattr(user, 'hopital') and user.hopital:
+                return queryset.filter(hopital=user.hopital)
+            return Patient.objects.none()
+        
+        # Par défaut, filtrer par hôpital si disponible
         if hasattr(user, 'hopital') and user.hopital:
-            queryset = queryset.filter(hopital=user.hopital)
-        else:
-            # Si l'utilisateur n'a pas d'hôpital, ne retourner aucun patient
-            # (sauf admin système qui peut tout voir)
-            if not (hasattr(user, 'role') and user.role == 'admin-systeme'):
-                return Patient.objects.none()
+            return queryset.filter(hopital=user.hopital)
         
-        # Recherche par date de naissance
-        date_naissance = self.request.query_params.get('date_naissance', None)
-        if date_naissance:
-            queryset = queryset.filter(date_naissance=date_naissance)
-        
-        # Recherche par âge minimum
-        age_min = self.request.query_params.get('age_min', None)
-        if age_min:
-            from datetime import date, timedelta
-            max_birth_date = date.today() - timedelta(days=int(age_min)*365)
-            queryset = queryset.filter(date_naissance__lte=max_birth_date)
-        
-        # Recherche par âge maximum
-        age_max = self.request.query_params.get('age_max', None)
-        if age_max:
-            from datetime import date, timedelta
-            min_birth_date = date.today() - timedelta(days=int(age_max)*365)
-            queryset = queryset.filter(date_naissance__gte=min_birth_date)
-        
-        return queryset
+        return Patient.objects.none()
     
     def perform_create(self, serializer):
         """Surcharge pour ajouter automatiquement le tenant"""
-        # CORRECTION: Vérifier que l'utilisateur a un hôpital
-        if hasattr(self.request.user, 'hopital') and self.request.user.hopital:
-            serializer.save(hopital=self.request.user.hopital)
+        user = self.request.user
+        
+        # Si l'utilisateur a un hôpital, l'utiliser
+        if hasattr(user, 'hopital') and user.hopital:
+            serializer.save(hopital=user.hopital)
         else:
             serializer.save()
     
@@ -131,8 +139,6 @@ class PatientViewSet(viewsets.ModelViewSet):
         """Statistiques du patient"""
         patient = self.get_object()
         
-        from django.utils import timezone
-        from datetime import timedelta
         from medical.models import Consultation, Ordonnance, ExamenMedical
         
         data = {
@@ -160,7 +166,7 @@ class PatientViewSet(viewsets.ModelViewSet):
         patient = self.get_object()
         
         # Vérifier que l'utilisateur est autorisé
-        if not (hasattr(request.user, 'role') and request.user.role in ['medecin', 'infirmier']):
+        if not (hasattr(request.user, 'role') and request.user.role in ['medecin', 'infirmier', 'personnel']):
             return Response(
                 {'error': 'Seuls les médecins et infirmiers peuvent ajouter des suivis'},
                 status=status.HTTP_403_FORBIDDEN
@@ -168,7 +174,7 @@ class PatientViewSet(viewsets.ModelViewSet):
         
         serializer = SuiviPatientSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save(patient=patient)
+            serializer.save(patient=patient, medecin=request.user.medecin_lie if hasattr(request.user, 'medecin_lie') else None)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
@@ -176,6 +182,14 @@ class PatientViewSet(viewsets.ModelViewSet):
     def ajouter_allergie(self, request, pk=None):
         """Ajouter une allergie"""
         patient = self.get_object()
+        
+        # Vérifier que l'utilisateur est autorisé
+        if not (hasattr(request.user, 'role') and request.user.role in ['medecin', 'infirmier', 'personnel']):
+            return Response(
+                {'error': 'Seuls les médecins et infirmiers peuvent ajouter des allergies'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         serializer = AllergiePatientSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save(patient=patient)
@@ -186,6 +200,14 @@ class PatientViewSet(viewsets.ModelViewSet):
     def ajouter_antecedent(self, request, pk=None):
         """Ajouter un antécédent médical"""
         patient = self.get_object()
+        
+        # Vérifier que l'utilisateur est autorisé
+        if not (hasattr(request.user, 'role') and request.user.role in ['medecin', 'infirmier', 'personnel']):
+            return Response(
+                {'error': 'Seuls les médecins et infirmiers peuvent ajouter des antécédents'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
         serializer = AntecedentMedicalSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save(patient=patient)
@@ -201,7 +223,7 @@ class AdressePatientViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'pays', 'ville']
     
     def get_queryset(self):
-        """CORRECTION: Vérifier Swagger et authentification"""
+        """Vérifier Swagger et authentification"""
         if getattr(self, 'swagger_fake_view', False):
             return AdressePatient.objects.none()
         
@@ -211,8 +233,15 @@ class AdressePatientViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return AdressePatient.objects.none()
         
+        # Admin système voit tout
+        if hasattr(user, 'role') and user.role == 'admin-systeme':
+            return queryset
+        
+        # Filtrer par hôpital
         if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
+        else:
+            return AdressePatient.objects.none()
         
         return queryset
 
@@ -225,7 +254,7 @@ class PersonneAContacterViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'relation']
     
     def get_queryset(self):
-        """CORRECTION: Vérifier Swagger et authentification"""
+        """Vérifier Swagger et authentification"""
         if getattr(self, 'swagger_fake_view', False):
             return PersonneAContacter.objects.none()
         
@@ -235,8 +264,15 @@ class PersonneAContacterViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return PersonneAContacter.objects.none()
         
+        # Admin système voit tout
+        if hasattr(user, 'role') and user.role == 'admin-systeme':
+            return queryset
+        
+        # Filtrer par hôpital
         if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
+        else:
+            return PersonneAContacter.objects.none()
         
         return queryset
 
@@ -249,7 +285,7 @@ class AssurancePatientViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'nom_assurance']
     
     def get_queryset(self):
-        """CORRECTION: Vérifier Swagger et authentification"""
+        """Vérifier Swagger et authentification"""
         if getattr(self, 'swagger_fake_view', False):
             return AssurancePatient.objects.none()
         
@@ -259,8 +295,15 @@ class AssurancePatientViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return AssurancePatient.objects.none()
         
+        # Admin système voit tout
+        if hasattr(user, 'role') and user.role == 'admin-systeme':
+            return queryset
+        
+        # Filtrer par hôpital
         if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
+        else:
+            return AssurancePatient.objects.none()
         
         return queryset
 
@@ -273,7 +316,7 @@ class AllergiePatientViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'gravite']
     
     def get_queryset(self):
-        """CORRECTION: Vérifier Swagger et authentification"""
+        """Vérifier Swagger et authentification"""
         if getattr(self, 'swagger_fake_view', False):
             return AllergiePatient.objects.none()
         
@@ -283,8 +326,15 @@ class AllergiePatientViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return AllergiePatient.objects.none()
         
+        # Admin système voit tout
+        if hasattr(user, 'role') and user.role == 'admin-systeme':
+            return queryset
+        
+        # Filtrer par hôpital
         if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
+        else:
+            return AllergiePatient.objects.none()
         
         return queryset
 
@@ -297,7 +347,7 @@ class AntecedentMedicalViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'type_antecedent', 'en_cours']
     
     def get_queryset(self):
-        """CORRECTION: Vérifier Swagger et authentification"""
+        """Vérifier Swagger et authentification"""
         if getattr(self, 'swagger_fake_view', False):
             return AntecedentMedical.objects.none()
         
@@ -307,14 +357,21 @@ class AntecedentMedicalViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return AntecedentMedical.objects.none()
         
+        # Admin système voit tout
+        if hasattr(user, 'role') and user.role == 'admin-systeme':
+            return queryset
+        
+        # Filtrer par hôpital
         if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
+        else:
+            return AntecedentMedical.objects.none()
         
         return queryset
 
 
 class SuiviPatientViewSet(viewsets.ModelViewSet):
-    queryset = SuiviPatient.objects.all().order_by('-date_suivi')  # CORRECTION: Ajouter order_by
+    queryset = SuiviPatient.objects.all().order_by('-date_suivi')
     serializer_class = SuiviPatientSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
@@ -322,8 +379,15 @@ class SuiviPatientViewSet(viewsets.ModelViewSet):
     ordering_fields = ['date_suivi', 'created_at']
     ordering = ['-date_suivi']
     
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel]
+        else:
+            permission_classes = [IsAuthenticated]
+        return [permission() for permission in permission_classes]
+    
     def get_queryset(self):
-        """CORRECTION: Vérifier Swagger et authentification"""
+        """Vérifier Swagger et authentification"""
         if getattr(self, 'swagger_fake_view', False):
             return SuiviPatient.objects.none()
         
@@ -333,14 +397,14 @@ class SuiviPatientViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return SuiviPatient.objects.none()
         
+        # Admin système voit tout
+        if hasattr(user, 'role') and user.role == 'admin-systeme':
+            return queryset
+        
+        # Filtrer par hôpital
         if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
+        else:
+            return SuiviPatient.objects.none()
         
         return queryset
-    
-    def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update']:
-            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel]
-        else:
-            permission_classes = [IsAuthenticated]
-        return [permission() for permission in permission_classes]
