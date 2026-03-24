@@ -1,6 +1,21 @@
+# gestion_tenants/serializers.py
 from rest_framework import serializers
 from .models import Tenant, ParametreHopital
-from comptes.serializers import UtilisateurSerializer, Utilisateur
+
+# IMPORTANT: Ne pas importer UtilisateurSerializer pour éviter la récursion
+# On va créer un sérializer simple pour le propriétaire
+
+
+class SimpleProprietaireSerializer(serializers.Serializer):
+    """Sérializer simple pour le propriétaire sans récursion"""
+    utilisateur_id = serializers.IntegerField(source='utilisateur_id')
+    nom_complet = serializers.CharField()
+    email = serializers.EmailField()
+    role = serializers.CharField()
+    
+    class Meta:
+        fields = ['utilisateur_id', 'nom_complet', 'email', 'role']
+
 
 class ParametreHopitalSerializer(serializers.ModelSerializer):
     class Meta:
@@ -13,15 +28,28 @@ class ParametreHopitalSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ('parametre_id', 'created_at', 'updated_at')
 
+
 class TenantSerializer(serializers.ModelSerializer):
-    proprietaire_utilisateur = UtilisateurSerializer(read_only=True)
+    # CORRECTION: Utiliser un sérializer simple pour éviter la récursion
+    proprietaire_utilisateur = serializers.SerializerMethodField()
     proprietaire_utilisateur_id = serializers.PrimaryKeyRelatedField(
-        queryset=Utilisateur.objects.all(),
+        queryset=Tenant._meta.get_field('proprietaire_utilisateur').remote_field.model.objects.all(),
         source='proprietaire_utilisateur',
         write_only=True,
         required=False
     )
     parametres = ParametreHopitalSerializer(read_only=True)
+    
+    def get_proprietaire_utilisateur(self, obj):
+        """Retourner les infos du propriétaire sans récursion"""
+        if obj.proprietaire_utilisateur:
+            return {
+                'utilisateur_id': obj.proprietaire_utilisateur.utilisateur_id,
+                'nom_complet': obj.proprietaire_utilisateur.nom_complet,
+                'email': obj.proprietaire_utilisateur.email,
+                'role': obj.proprietaire_utilisateur.role,
+            }
+        return None
     
     class Meta:
         model = Tenant

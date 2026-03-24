@@ -1,4 +1,4 @@
-# serializers.py
+# comptes/serializers.py
 from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.utils import timezone
@@ -9,9 +9,24 @@ class UtilisateurSerializer(serializers.ModelSerializer):
     hopital_detail = serializers.SerializerMethodField()
     
     def get_hopital_detail(self, obj):
+        """Récupérer les détails de l'hôpital sans créer de récursion"""
         if obj.hopital:
-            from gestion_tenants.serializers import TenantSerializer
-            return TenantSerializer(obj.hopital).data
+            # CORRECTION: Retourner un dictionnaire simple au lieu du TenantSerializer
+            # pour éviter la récursion infinie
+            return {
+                'tenant_id': obj.hopital.tenant_id,
+                'nom': obj.hopital.nom,
+                'adresse': obj.hopital.adresse,
+                'telephone': obj.hopital.telephone,
+                'email_professionnel': obj.hopital.email_professionnel,
+                'directeur': obj.hopital.directeur,
+                'nombre_de_lits': obj.hopital.nombre_de_lits,
+                'numero_enregistrement': obj.hopital.numero_enregistrement,
+                'statut': obj.hopital.statut,
+                'type_abonnement': obj.hopital.type_abonnement,
+                'statut_verification_document': obj.hopital.statut_verification_document,
+                'cree_le': obj.hopital.cree_le,
+            }
         return None
     
     class Meta:
@@ -101,12 +116,11 @@ class InscriptionSerializer(serializers.Serializer):
         # Extraire les données
         hopital_data = validated_data.pop('hopital_data', None)
         validated_data.pop('confirm_password', None)
-        validated_data.pop('nom', None)  # Ignorer les champs redondants
-        validated_data.pop('prenom', None)  # Ignorer les champs redondants
+        validated_data.pop('nom', None)
+        validated_data.pop('prenom', None)
         is_active = validated_data.pop('is_active', False)
         password = validated_data.pop('password')
         
-        # Extraire nom et prénom du nom_complet si nécessaire
         nom_complet = validated_data['nom_complet']
         
         # Créer l'utilisateur
@@ -118,7 +132,7 @@ class InscriptionSerializer(serializers.Serializer):
             hopital=None
         )
         
-        # CORRECTION BUG #2: Appliquer is_active (False par défaut pour les propriétaires)
+        # Appliquer is_active
         utilisateur.is_active = is_active
         utilisateur.save(update_fields=['is_active'])
         
@@ -127,7 +141,6 @@ class InscriptionSerializer(serializers.Serializer):
             try:
                 from gestion_tenants.models import Tenant
                 
-                # Créer le tenant
                 tenant = Tenant.objects.create(
                     nom=hopital_data.get('nom'),
                     adresse=hopital_data.get('adresse', ''),
@@ -143,16 +156,14 @@ class InscriptionSerializer(serializers.Serializer):
                     cree_par_utilisateur=utilisateur,
                 )
                 
-                # Associer l'utilisateur au tenant
                 utilisateur.hopital = tenant
                 utilisateur.save(update_fields=['hopital'])
                 
-                # CORRECTION BUG #2: Forcer is_active=False pour les propriétaires
+                # Forcer is_active=False pour les propriétaires
                 utilisateur.is_active = False
                 utilisateur.save(update_fields=['is_active'])
                 
             except Exception as e:
-                # En cas d'erreur, supprimer l'utilisateur pour éviter les orphelins
                 utilisateur.delete()
                 raise serializers.ValidationError({
                     'hopital_data': f'Erreur lors de la création de l\'hôpital: {str(e)}'
@@ -178,7 +189,6 @@ class LoginSerializer(serializers.Serializer):
             if not utilisateur.is_active:
                 raise serializers.ValidationError("Ce compte est désactivé. Veuillez contacter l'administrateur.")
             
-            # Mettre à jour la dernière connexion
             utilisateur.derniere_connexion = timezone.now()
             utilisateur.save(update_fields=['derniere_connexion'])
             
