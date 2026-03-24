@@ -20,17 +20,17 @@ from .permissions import (
     EstPersonnel, EstPatient, PeutModifierUtilisateur
 )
 
-
 class UtilisateurViewSet(viewsets.ModelViewSet):
     """
     ViewSet pour la gestion des utilisateurs
     """
-    queryset = Utilisateur.objects.all()
+    queryset = Utilisateur.objects.all().order_by('-cree_le')
     serializer_class = UtilisateurSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['role', 'hopital', 'is_active']
     search_fields = ['email', 'nom_complet']
     ordering_fields = ['nom_complet', 'cree_le', 'derniere_connexion']
+    ordering = ['-cree_le'] 
     
     def get_permissions(self):
         """

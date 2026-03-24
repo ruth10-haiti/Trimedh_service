@@ -22,11 +22,12 @@ from comptes.permissions import (
     EstDansMemesTenant
 )
 
+
 class PatientViewSet(viewsets.ModelViewSet):
     """
     ViewSet pour la gestion des patients
     """
-    queryset = Patient.objects.all()
+    queryset = Patient.objects.all().order_by('-cree_le')  # CORRECTION: Ajouter order_by
     serializer_class = PatientSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['sexe', 'hopital']
@@ -53,18 +54,31 @@ class PatientViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """
-        Filtrer les patients selon les permissions
+        CORRECTION: Filtrer les patients selon les permissions avec vérification Swagger
         """
+        # CORRECTION: Vérifier si c'est pour la génération Swagger
+        if getattr(self, 'swagger_fake_view', False):
+            return Patient.objects.none()
+        
         queryset = super().get_queryset()
         user = self.request.user
         
+        # CORRECTION: Vérifier si l'utilisateur est authentifié
+        if not user.is_authenticated:
+            return Patient.objects.none()
+        
         # Les patients ne voient que leur propre dossier
-        if user.role == 'patient' and hasattr(user, 'patient_lie'):
+        if hasattr(user, 'role') and user.role == 'patient' and hasattr(user, 'patient_lie'):
             return queryset.filter(pk=user.patient_lie.pk)
         
-        # Filtrer par tenant
-        if user.hopital:
+        # CORRECTION: Filtrer par tenant avec hasattr
+        if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(hopital=user.hopital)
+        else:
+            # Si l'utilisateur n'a pas d'hôpital, ne retourner aucun patient
+            # (sauf admin système qui peut tout voir)
+            if not (hasattr(user, 'role') and user.role == 'admin-systeme'):
+                return Patient.objects.none()
         
         # Recherche par date de naissance
         date_naissance = self.request.query_params.get('date_naissance', None)
@@ -89,7 +103,11 @@ class PatientViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Surcharge pour ajouter automatiquement le tenant"""
-        serializer.save(hopital=self.request.user.hopital)
+        # CORRECTION: Vérifier que l'utilisateur a un hôpital
+        if hasattr(self.request.user, 'hopital') and self.request.user.hopital:
+            serializer.save(hopital=self.request.user.hopital)
+        else:
+            serializer.save()
     
     @action(detail=True, methods=['get'])
     def dossier_complet(self, request, pk=None):
@@ -97,7 +115,7 @@ class PatientViewSet(viewsets.ModelViewSet):
         patient = self.get_object()
         
         # Vérifier les permissions
-        if (request.user.role == 'patient' and 
+        if (hasattr(request.user, 'role') and request.user.role == 'patient' and 
             hasattr(request.user, 'patient_lie') and 
             request.user.patient_lie != patient):
             return Response(
@@ -142,7 +160,7 @@ class PatientViewSet(viewsets.ModelViewSet):
         patient = self.get_object()
         
         # Vérifier que l'utilisateur est autorisé
-        if request.user.role not in ['medecin', 'infirmier']:
+        if not (hasattr(request.user, 'role') and request.user.role in ['medecin', 'infirmier']):
             return Response(
                 {'error': 'Seuls les médecins et infirmiers peuvent ajouter des suivis'},
                 status=status.HTTP_403_FORBIDDEN
@@ -173,6 +191,8 @@ class PatientViewSet(viewsets.ModelViewSet):
             serializer.save(patient=patient)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 class AdressePatientViewSet(viewsets.ModelViewSet):
     queryset = AdressePatient.objects.all()
     serializer_class = AdressePatientSerializer
@@ -181,13 +201,21 @@ class AdressePatientViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'pays', 'ville']
     
     def get_queryset(self):
+        """CORRECTION: Vérifier Swagger et authentification"""
+        if getattr(self, 'swagger_fake_view', False):
+            return AdressePatient.objects.none()
+        
         queryset = super().get_queryset()
         user = self.request.user
         
-        if user.hopital:
+        if not user.is_authenticated:
+            return AdressePatient.objects.none()
+        
+        if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
         
         return queryset
+
 
 class PersonneAContacterViewSet(viewsets.ModelViewSet):
     queryset = PersonneAContacter.objects.all()
@@ -197,13 +225,21 @@ class PersonneAContacterViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'relation']
     
     def get_queryset(self):
+        """CORRECTION: Vérifier Swagger et authentification"""
+        if getattr(self, 'swagger_fake_view', False):
+            return PersonneAContacter.objects.none()
+        
         queryset = super().get_queryset()
         user = self.request.user
         
-        if user.hopital:
+        if not user.is_authenticated:
+            return PersonneAContacter.objects.none()
+        
+        if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
         
         return queryset
+
 
 class AssurancePatientViewSet(viewsets.ModelViewSet):
     queryset = AssurancePatient.objects.all()
@@ -213,13 +249,21 @@ class AssurancePatientViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'nom_assurance']
     
     def get_queryset(self):
+        """CORRECTION: Vérifier Swagger et authentification"""
+        if getattr(self, 'swagger_fake_view', False):
+            return AssurancePatient.objects.none()
+        
         queryset = super().get_queryset()
         user = self.request.user
         
-        if user.hopital:
+        if not user.is_authenticated:
+            return AssurancePatient.objects.none()
+        
+        if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
         
         return queryset
+
 
 class AllergiePatientViewSet(viewsets.ModelViewSet):
     queryset = AllergiePatient.objects.all()
@@ -229,13 +273,21 @@ class AllergiePatientViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'gravite']
     
     def get_queryset(self):
+        """CORRECTION: Vérifier Swagger et authentification"""
+        if getattr(self, 'swagger_fake_view', False):
+            return AllergiePatient.objects.none()
+        
         queryset = super().get_queryset()
         user = self.request.user
         
-        if user.hopital:
+        if not user.is_authenticated:
+            return AllergiePatient.objects.none()
+        
+        if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
         
         return queryset
+
 
 class AntecedentMedicalViewSet(viewsets.ModelViewSet):
     queryset = AntecedentMedical.objects.all()
@@ -245,16 +297,24 @@ class AntecedentMedicalViewSet(viewsets.ModelViewSet):
     filterset_fields = ['patient', 'type_antecedent', 'en_cours']
     
     def get_queryset(self):
+        """CORRECTION: Vérifier Swagger et authentification"""
+        if getattr(self, 'swagger_fake_view', False):
+            return AntecedentMedical.objects.none()
+        
         queryset = super().get_queryset()
         user = self.request.user
         
-        if user.hopital:
+        if not user.is_authenticated:
+            return AntecedentMedical.objects.none()
+        
+        if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
         
         return queryset
 
+
 class SuiviPatientViewSet(viewsets.ModelViewSet):
-    queryset = SuiviPatient.objects.all()
+    queryset = SuiviPatient.objects.all().order_by('-date_suivi')  # CORRECTION: Ajouter order_by
     serializer_class = SuiviPatientSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
@@ -263,10 +323,17 @@ class SuiviPatientViewSet(viewsets.ModelViewSet):
     ordering = ['-date_suivi']
     
     def get_queryset(self):
+        """CORRECTION: Vérifier Swagger et authentification"""
+        if getattr(self, 'swagger_fake_view', False):
+            return SuiviPatient.objects.none()
+        
         queryset = super().get_queryset()
         user = self.request.user
         
-        if user.hopital:
+        if not user.is_authenticated:
+            return SuiviPatient.objects.none()
+        
+        if hasattr(user, 'hopital') and user.hopital:
             queryset = queryset.filter(patient__hopital=user.hopital)
         
         return queryset

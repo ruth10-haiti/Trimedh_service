@@ -173,15 +173,21 @@ class InscriptionSerializer(serializers.Serializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    # CORRECTION: Accepter email OU username
+    username = serializers.CharField()  # Renommer email en username
     password = serializers.CharField(write_only=True)
     
     def validate(self, data):
-        email = data.get('email')
+        username = data.get('username')
         password = data.get('password')
         
-        if email and password:
-            utilisateur = authenticate(email=email, password=password)
+        if username and password:
+            # CORRECTION: Essayer avec email puis avec username
+            utilisateur = None
+            if '@' in username:
+                utilisateur = authenticate(email=username, password=password)
+            if not utilisateur:
+                utilisateur = authenticate(username=username, password=password)
             
             if not utilisateur:
                 raise serializers.ValidationError("Email ou mot de passe incorrect")

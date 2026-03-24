@@ -14,7 +14,9 @@ class Patient(models.Model):
     hopital = models.ForeignKey(
         'gestion_tenants.Tenant',
         on_delete=models.CASCADE,
-        db_column='hopital_id'
+        db_column='hopital_id',
+        null=True,  # CORRECTION: Rendre optionnel pour les patients sans hôpital
+        blank=True
     )
     
     nom = models.CharField(max_length=100)
@@ -60,11 +62,14 @@ class Patient(models.Model):
         db_table = 'patient'
         verbose_name = 'Patient'
         verbose_name_plural = 'Patients'
+        ordering = ['-cree_le']  # CORRECTION: Ajouter ordering
         indexes = [
             models.Index(fields=['numero_dossier_medical']),
             models.Index(fields=['hopital', 'nom']),
         ]
 
+
+# Les autres modèles restent identiques
 class AdressePatient(models.Model):
     """TABLE AdressePatient"""
     
@@ -93,6 +98,7 @@ class AdressePatient(models.Model):
         verbose_name = 'Adresse Patient'
         verbose_name_plural = 'Adresses Patients'
 
+
 class PersonneAContacter(models.Model):
     """TABLE PersonneAContacter"""
     
@@ -116,6 +122,7 @@ class PersonneAContacter(models.Model):
         verbose_name = 'Personne à contacter'
         verbose_name_plural = 'Personnes à contacter'
 
+
 class AssurancePatient(models.Model):
     """TABLE AssurancePatient"""
     
@@ -138,6 +145,7 @@ class AssurancePatient(models.Model):
         db_table = 'assurance_patient'
         verbose_name = 'Assurance Patient'
         verbose_name_plural = 'Assurances Patients'
+
 
 class AllergiePatient(models.Model):
     """TABLE AllergiePatient"""
@@ -171,6 +179,7 @@ class AllergiePatient(models.Model):
         db_table = 'allergie_patient'
         verbose_name = 'Allergie Patient'
         verbose_name_plural = 'Allergies Patients'
+
 
 class AntecedentMedical(models.Model):
     """TABLE AntecedentMedical"""
@@ -207,6 +216,7 @@ class AntecedentMedical(models.Model):
         db_table = 'antecedent_medical'
         verbose_name = 'Antécédent Médical'
         verbose_name_plural = 'Antécédents Médicaux'
+
 
 class SuiviPatient(models.Model):
     """Suivi médical du patient"""
