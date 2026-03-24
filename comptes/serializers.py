@@ -57,8 +57,13 @@ class InscriptionSerializer(serializers.Serializer):
     confirm_password = serializers.CharField(write_only=True, required=True)
     role = serializers.ChoiceField(choices=Utilisateur.Role.choices, default='patient')
     
+    # Champs optionnels pour compatibilité frontend
+    nom = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    prenom = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    is_active = serializers.BooleanField(required=False, default=False, write_only=True)
+    
     # Champs tenant (optionnel)
-    hopital_data = serializers.DictField(required=False, allow_null=True)
+    hopital_data = serializers.DictField(required=False, allow_null=True, write_only=True)
     
     def validate_email(self, value):
         """Vérifier que l'email n'existe pas déjà"""
@@ -95,19 +100,29 @@ class InscriptionSerializer(serializers.Serializer):
         """Création de l'utilisateur et du tenant (si applicable)"""
         # Extraire les données
         hopital_data = validated_data.pop('hopital_data', None)
-        validated_data.pop('confirm_password', None)  # Supprimer confirm_password
+        validated_data.pop('confirm_password', None)
+        validated_data.pop('nom', None)  # Ignorer les champs redondants
+        validated_data.pop('prenom', None)  # Ignorer les champs redondants
+        is_active = validated_data.pop('is_active', False)
         password = validated_data.pop('password')
+        
+        # Extraire nom et prénom du nom_complet si nécessaire
+        nom_complet = validated_data['nom_complet']
         
         # Créer l'utilisateur
         utilisateur = Utilisateur.objects.creer_utilisateur(
             email=validated_data['email'],
-            nom_complet=validated_data['nom_complet'],
+            nom_complet=nom_complet,
             mot_de_passe=password,
             role=validated_data.get('role', 'patient'),
-            hopital=None  # Sera mis à jour après création du tenant
+            hopital=None
         )
         
-        # Créer le Tenant si hopital_data est présent et rôle proprietaire-hopital
+        # CORRECTION BUG #2: Appliquer is_active (False par défaut pour les propriétaires)
+        utilisateur.is_active = is_active
+        utilisateur.save(update_fields=['is_active'])
+        
+        # Créer le Tenant pour propriétaire d'hôpital
         if hopital_data and utilisateur.role == 'proprietaire-hopital':
             try:
                 from gestion_tenants.models import Tenant
@@ -118,7 +133,7 @@ class InscriptionSerializer(serializers.Serializer):
                     adresse=hopital_data.get('adresse', ''),
                     telephone=hopital_data.get('telephone', ''),
                     email_professionnel=hopital_data.get('email_professionnel', ''),
-                    directeur=hopital_data.get('directeur', validated_data.get('nom_complet')),
+                    directeur=hopital_data.get('directeur', nom_complet),
                     nombre_de_lits=hopital_data.get('nombre_de_lits', 1),
                     numero_enregistrement=hopital_data.get('numero_enregistrement', ''),
                     statut=hopital_data.get('statut', 'actif'),
@@ -131,6 +146,10 @@ class InscriptionSerializer(serializers.Serializer):
                 # Associer l'utilisateur au tenant
                 utilisateur.hopital = tenant
                 utilisateur.save(update_fields=['hopital'])
+                
+                # CORRECTION BUG #2: Forcer is_active=False pour les propriétaires
+                utilisateur.is_active = False
+                utilisateur.save(update_fields=['is_active'])
                 
             except Exception as e:
                 # En cas d'erreur, supprimer l'utilisateur pour éviter les orphelins
@@ -157,7 +176,7 @@ class LoginSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Email ou mot de passe incorrect")
             
             if not utilisateur.is_active:
-                raise serializers.ValidationError("Ce compte est désactivé")
+                raise serializers.ValidationError("Ce compte est désactivé. Veuillez contacter l'administrateur.")
             
             # Mettre à jour la dernière connexion
             utilisateur.derniere_connexion = timezone.now()
@@ -187,7 +206,7 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Utilisateur
         fields = ['nom_complet', 'email', 'role', 'hopital']
-        read_only_fields = ['email', 'role']  # Email et rôle ne peuvent pas être modifiés
+        read_only_fields = ['email', 'role']
     
     def validate_nom_complet(self, value):
         if len(value.strip()) < 3:
