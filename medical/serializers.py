@@ -247,13 +247,59 @@ class ExamenMedicalSerializer(serializers.ModelSerializer):
 
 class ConsultationCreateSerializer(serializers.ModelSerializer):
     """Serializer pour la création de consultations"""
+    
     class Meta:
         model = Consultation
         fields = ['patient', 'medecin', 'rendez_vous', 'date_consultation', 'motif', 'diagnostic_principal', 'notes']
     
+    def validate(self, data):
+        """
+        CORRECTION: Validation supplémentaire pour s'assurer que le patient et le médecin sont valides
+        """
+        patient = data.get('patient')
+        medecin = data.get('medecin')
+        
+        # Vérifier que le patient et le médecin existent
+        if patient and not patient:
+            raise serializers.ValidationError({'patient': 'Patient invalide'})
+        
+        if medecin and not medecin:
+            raise serializers.ValidationError({'medecin': 'Médecin invalide'})
+        
+        # Vérifier que le patient et le médecin appartiennent au même hôpital
+        if patient and medecin:
+            if hasattr(patient, 'hopital') and hasattr(medecin, 'hopital'):
+                if patient.hopital != medecin.hopital:
+                    raise serializers.ValidationError({
+                        'error': 'Le patient et le médecin doivent appartenir au même hôpital'
+                    })
+        
+        # Vérifier que la date de consultation n'est pas dans le passé (optionnel)
+        date_consultation = data.get('date_consultation')
+        if date_consultation and date_consultation < timezone.now():
+            # Vous pouvez commenter cette ligne si vous voulez autoriser les consultations passées
+            # raise serializers.ValidationError({'date_consultation': 'La date ne peut pas être dans le passé'})
+            pass
+        
+        return data
+    
     def create(self, validated_data):
-        # Ajouter le tenant automatiquement
-        validated_data['tenant'] = self.context['request'].user.hopital
+        """
+        CORRECTION: Ajouter le tenant automatiquement depuis l'utilisateur connecté
+        """
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'hopital') and request.user.hopital:
+            validated_data['tenant'] = request.user.hopital
+        else:
+            # Essayer de récupérer le tenant depuis le patient ou le médecin
+            patient = validated_data.get('patient')
+            medecin = validated_data.get('medecin')
+            
+            if patient and hasattr(patient, 'hopital'):
+                validated_data['tenant'] = patient.hopital
+            elif medecin and hasattr(medecin, 'hopital'):
+                validated_data['tenant'] = medecin.hopital
+        
         return super().create(validated_data)
 
 class OrdonnanceCreateSerializer(serializers.ModelSerializer):

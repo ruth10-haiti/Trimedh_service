@@ -238,9 +238,17 @@ class ConsultationViewSet(viewsets.ModelViewSet):
         return super().get_serializer_class()
     
     def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update']:
+        """
+        CORRECTION: Permettre aux patients de créer des consultations
+        """
+        if self.action == 'create':
+            # Les médecins, le personnel ET les patients peuvent créer des consultations
+            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel | EstPatient]
+        elif self.action in ['update', 'partial_update']:
+            # Seuls les médecins et le personnel peuvent modifier
             permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel]
         elif self.action == 'destroy':
+            # Seuls les médecins et le personnel peuvent supprimer
             permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel]
         else:
             permission_classes = [IsAuthenticated]
@@ -271,6 +279,9 @@ class ConsultationViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(patient=user.patient_lie)
         elif hasattr(user, 'role') and user.role == 'medecin' and hasattr(user, 'medecin_lie'):
             queryset = queryset.filter(medecin=user.medecin_lie)
+        elif hasattr(user, 'role') and user.role in ['personnel', 'secretaire', 'infirmier']:
+            # Le personnel voit toutes les consultations de l'hôpital
+            pass
         
         # Filtres par date
         date_debut = self.request.query_params.get('date_debut')
@@ -293,21 +304,100 @@ class ConsultationViewSet(viewsets.ModelViewSet):
         return queryset.select_related('patient', 'medecin', 'rendez_vous')
     
     def perform_create(self, serializer):
+        """
+        CORRECTION: Ajouter automatiquement le tenant et valider les données
+        """
         user = self.request.user
+        
+        # Déterminer le tenant
         if hasattr(user, 'hopital') and user.hopital:
-            serializer.save(tenant=user.hopital)
+            tenant = user.hopital
+        else:
+            # Essayer de récupérer le tenant depuis le patient ou le médecin
+            patient = serializer.validated_data.get('patient')
+            medecin = serializer.validated_data.get('medecin')
+            
+            if patient and hasattr(patient, 'hopital'):
+                tenant = patient.hopital
+            elif medecin and hasattr(medecin, 'hopital'):
+                tenant = medecin.hopital
+            else:
+                tenant = None
+        
+        # Sauvegarder avec le tenant
+        if tenant:
+            serializer.save(tenant=tenant)
         else:
             serializer.save()
+    
+    def create(self, request, *args, **kwargs):
+        """
+        CORRECTION: Surcharge de create pour mieux gérer les erreurs
+        """
+        try:
+            # Vérifier que l'utilisateur est authentifié
+            if not request.user.is_authenticated:
+                return Response(
+                    {'error': 'Authentification requise'},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            # Vérifier les données requises
+            required_fields = ['patient', 'medecin', 'date_consultation']
+            missing_fields = [field for field in required_fields if field not in request.data]
+            
+            if missing_fields:
+                return Response(
+                    {'error': f'Champs manquants: {", ".join(missing_fields)}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Si c'est un patient qui crée, vérifier qu'il crée pour lui-même
+            if hasattr(request.user, 'role') and request.user.role == 'patient':
+                patient_id = request.data.get('patient')
+                if hasattr(request.user, 'patient_lie'):
+                    if str(request.user.patient_lie.patient_id) != str(patient_id):
+                        return Response(
+                            {'error': 'Vous ne pouvez créer une consultation que pour vous-même'},
+                            status=status.HTTP_403_FORBIDDEN
+                        )
+            
+            return super().create(request, *args, **kwargs)
+            
+        except Exception as e:
+            # Loguer l'erreur pour le débogage
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Erreur lors de la création de consultation: {str(e)}")
+            
+            return Response(
+                {'error': f'Erreur lors de la création: {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
     
     @action(detail=True, methods=['post'])
     def creer_ordonnance(self, request, pk=None):
         """Créer une ordonnance pour cette consultation"""
         consultation = self.get_object()
         
-        # Vérifier que l'utilisateur est le médecin de la consultation
-        if not (hasattr(request.user, 'role') and request.user.role == 'medecin' and hasattr(request.user, 'medecin_lie')):
+        # Vérifier que l'utilisateur est authentifié
+        if not request.user.is_authenticated:
             return Response(
-                {'error': 'Seul le médecin de la consultation peut créer une ordonnance'},
+                {'error': 'Authentification requise'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Vérifier que l'utilisateur a le rôle médecin
+        if not hasattr(request.user, 'role') or request.user.role != 'medecin':
+            return Response(
+                {'error': 'Seul un médecin peut créer une ordonnance'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Vérifier que le médecin correspond à celui de la consultation
+        if not hasattr(request.user, 'medecin_lie'):
+            return Response(
+                {'error': 'Profil médecin non trouvé'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
@@ -337,9 +427,21 @@ class ConsultationViewSet(viewsets.ModelViewSet):
         consultation = self.get_object()
         
         # Vérifier les permissions
-        if not (hasattr(request.user, 'role') and request.user.role == 'medecin' and hasattr(request.user, 'medecin_lie')):
+        if not request.user.is_authenticated:
+            return Response(
+                {'error': 'Authentification requise'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        if not hasattr(request.user, 'role') or request.user.role != 'medecin':
             return Response(
                 {'error': 'Seuls les médecins peuvent prescrire des examens'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if not hasattr(request.user, 'medecin_lie'):
+            return Response(
+                {'error': 'Profil médecin non trouvé'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
@@ -362,8 +464,7 @@ class ConsultationViewSet(viewsets.ModelViewSet):
             examen = serializer.save()
             return Response(ExamenMedicalSerializer(examen).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
+    
 class OrdonnanceViewSet(viewsets.ModelViewSet):
     """ViewSet pour les ordonnances"""
     queryset = Ordonnance.objects.all().order_by('-date_ordonnance')
