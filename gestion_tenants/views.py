@@ -8,12 +8,11 @@ from .models import Tenant, ParametreHopital
 from .serializers import TenantSerializer, ParametreHopitalSerializer
 from comptes.permissions import EstAdminSysteme, EstProprietaireHopital
 
-
 class TenantViewSet(viewsets.ModelViewSet):
     """
     ViewSet pour la gestion des tenants
     """
-    queryset = Tenant.objects.all().order_by('-cree_le')  # CORRECTION: Ajouter order_by
+    queryset = Tenant.objects.all().order_by('-cree_le')
     serializer_class = TenantSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['nom', 'email_professionnel', 'directeur']
@@ -21,14 +20,16 @@ class TenantViewSet(viewsets.ModelViewSet):
     
     def get_permissions(self):
         """
-        CORRECTION: Permissions personnalisées selon l'action
+        Permissions personnalisées selon l'action
         """
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            # Seul l'admin système peut modifier
             permission_classes = [IsAuthenticated, EstAdminSysteme]
         elif self.action == 'retrieve':
+            # Les détails d'un hôpital nécessitent une authentification
             permission_classes = [IsAuthenticated]
         elif self.action == 'list':
-            # CORRECTION: Permettre à tout le monde de voir la liste des hôpitaux
+            # La liste des hôpitaux est publique
             permission_classes = [AllowAny]
         else:
             permission_classes = [IsAuthenticated]
@@ -36,24 +37,24 @@ class TenantViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """
-        CORRECTION: Filtrer les tenants selon les permissions avec vérification Swagger
+        Filtrer les tenants selon les permissions
         """
-        # CORRECTION: Vérifier si c'est pour la génération Swagger
+        # Éviter les erreurs lors de la génération Swagger
         if getattr(self, 'swagger_fake_view', False):
             return Tenant.objects.none()
         
         queryset = super().get_queryset()
         user = self.request.user
         
-        # CORRECTION: Pour la liste (public), retourner tous les tenants actifs
+        # Pour la liste publique, retourner tous les tenants actifs
         if self.action == 'list':
             return queryset.filter(statut='actif')
         
-        # Vérifier si l'utilisateur est authentifié pour les autres actions
+        # Pour les autres actions, l'utilisateur doit être authentifié
         if not user.is_authenticated:
             return Tenant.objects.none()
         
-        # CORRECTION: Utiliser hasattr pour éviter AttributeError
+        # Admin système voit tout
         if hasattr(user, 'role') and user.role == 'admin-systeme':
             return queryset
         
@@ -65,6 +66,7 @@ class TenantViewSet(viewsets.ModelViewSet):
         if hasattr(user, 'hopital') and user.hopital:
             return queryset.filter(pk=user.hopital.pk)
         
+        # Par défaut, retourner vide
         return Tenant.objects.none()
     
     @action(detail=True, methods=['patch'])
@@ -96,7 +98,7 @@ class TenantViewSet(viewsets.ModelViewSet):
             })
         
         return Response(
-            {'error': 'Action invalide'},
+            {'error': 'Action invalide. Utilisez "approuver" ou "rejeter".'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -105,6 +107,7 @@ class TenantViewSet(viewsets.ModelViewSet):
         """Statistiques d'un tenant"""
         tenant = self.get_object()
         
+        # Imports à l'intérieur pour éviter les imports circulaires
         from comptes.models import Utilisateur
         from patients.models import Patient
         from medical.models import Medecin, Consultation
