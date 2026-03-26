@@ -1,4 +1,3 @@
-# views.py
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -9,6 +8,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from django_filters.rest_framework import DjangoFilterBackend
 from django.contrib.auth import authenticate
 from django.conf import settings
+import logging
 from django.db import transaction
 from .models import Utilisateur
 from .serializers import (
@@ -145,15 +145,14 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
             'message': f'Utilisateur {status_msg} avec succès',
             'is_active': utilisateur.is_active
         })
-
-
+    
+# views.py - Partie LoginView uniquement
 class LoginView(APIView):
-    """Vue pour l'authentification - Accepte email ou username"""
+    """Vue pour l'authentification avec email et password"""
     
     permission_classes = [AllowAny]
     
     def post(self, request):
-        # CORRECTION: Support de email ou username
         serializer = LoginSerializer(data=request.data)
         
         if serializer.is_valid():

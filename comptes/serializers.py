@@ -4,6 +4,9 @@ from django.contrib.auth import authenticate
 from django.utils import timezone
 from django.db import transaction
 from .models import Utilisateur
+import logging
+
+logger = logging.getLogger(__name__)
 
 class UtilisateurSerializer(serializers.ModelSerializer):
     hopital_detail = serializers.SerializerMethodField()
@@ -11,8 +14,6 @@ class UtilisateurSerializer(serializers.ModelSerializer):
     def get_hopital_detail(self, obj):
         """Récupérer les détails de l'hôpital sans créer de récursion"""
         if obj.hopital:
-            # CORRECTION: Retourner un dictionnaire simple au lieu du TenantSerializer
-            # pour éviter la récursion infinie
             return {
                 'tenant_id': obj.hopital.tenant_id,
                 'nom': obj.hopital.nom,
@@ -174,60 +175,37 @@ class InscriptionSerializer(serializers.Serializer):
 
 class LoginSerializer(serializers.Serializer):
     """
-    Serializer de connexion qui accepte email ou username
+    Serializer de connexion avec email et password uniquement
     """
-    # CORRECTION: Accepter email ou username comme champs
-    email = serializers.CharField(required=False, allow_blank=True)
-    username = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, required=True)
     
     def validate(self, data):
         # Récupérer les valeurs
         email = data.get('email', '').strip()
-        username = data.get('username', '').strip()
         password = data.get('password', '')
         
-        # Déterminer l'identifiant (priorité à email si présent)
-        identifier = email if email else username
-        
         # Validation des champs requis
-        if not identifier:
-            raise serializers.ValidationError("Email ou nom d'utilisateur requis")
+        if not email:
+            raise serializers.ValidationError("L'email est requis")
         
         if not password:
-            raise serializers.ValidationError("Mot de passe requis")
+            raise serializers.ValidationError("Le mot de passe est requis")
         
         # Authentification
         utilisateur = None
         
-        # Méthode 1: Essayer avec authenticate
-        if email:
-            utilisateur = authenticate(email=email, password=password)
-        
-        # Si pas trouvé et username existe, essayer avec username
-        if not utilisateur and username:
-            utilisateur = authenticate(username=username, password=password)
-        
-        # Méthode 2: Chercher manuellement si authenticate n'a pas fonctionné
-        if not utilisateur:
-            try:
-                # Chercher par email
-                user_obj = Utilisateur.objects.filter(email=identifier).first()
-                if user_obj and user_obj.check_password(password):
-                    utilisateur = user_obj
-            except Exception:
-                pass
-        
-        # Si toujours pas trouvé, essayer par username (si le modèle a un champ username)
-        if not utilisateur:
-            try:
-                # Vérifier si le modèle a un champ username
-                if hasattr(Utilisateur, 'username'):
-                    user_obj = Utilisateur.objects.filter(username=identifier).first()
-                    if user_obj and user_obj.check_password(password):
-                        utilisateur = user_obj
-            except Exception:
-                pass
+        # Chercher l'utilisateur par email
+        try:
+            utilisateur = Utilisateur.objects.get(email=email)
+            if not utilisateur.check_password(password):
+                utilisateur = None
+                logger.warning(f"Password check failed for email: {email}")
+            else:
+                logger.info(f"User found by email: {email}")
+        except Utilisateur.DoesNotExist:
+            logger.warning(f"User not found with email: {email}")
+            pass
         
         # Si aucun utilisateur trouvé
         if not utilisateur:
@@ -240,6 +218,8 @@ class LoginSerializer(serializers.Serializer):
         # Mettre à jour la dernière connexion
         utilisateur.derniere_connexion = timezone.now()
         utilisateur.save(update_fields=['derniere_connexion'])
+        
+        logger.info(f"Login successful for user: {utilisateur.email}")
         
         # Ajouter l'utilisateur aux données validées
         data['utilisateur'] = utilisateur
