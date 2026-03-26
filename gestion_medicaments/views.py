@@ -229,9 +229,33 @@ class MedicamentViewSet(viewsets.ModelViewSet):
         # Répartition par forme pharmaceutique
         repartition_formes = {}
         formes = queryset.filter(actif=True).values('forme_pharmaceutique').annotate(
-            count=Count('medicament_id')
+            count=Count('id')
         )
         for forme in formes:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
             repartition_formes[forme['forme_pharmaceutique']] = forme['count']
         
         # Top 10 des médicaments les plus chers
@@ -385,6 +409,3 @@ class MedicamentViewSet(viewsets.ModelViewSet):
             'total': len(export_data),
             'date_export': timezone.now().isoformat()
         })
-
-# Import nécessaire pour les requêtes F
-from django.db import models
