@@ -173,36 +173,91 @@ class InscriptionSerializer(serializers.Serializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    # CORRECTION: Accepter email OU username
-    username = serializers.CharField()  # Renommer email en username
-    password = serializers.CharField(write_only=True)
+    """
+    Serializer de connexion qui accepte email ou username
+    """
+    # CORRECTION: Accepter email ou username comme champs
+    email = serializers.CharField(required=False, allow_blank=True)
+    username = serializers.CharField(required=False, allow_blank=True)
+    password = serializers.CharField(write_only=True, required=True)
     
     def validate(self, data):
-        username = data.get('username')
-        password = data.get('password')
+        # Récupérer les valeurs
+        email = data.get('email', '').strip()
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
         
-        if username and password:
-            # CORRECTION: Essayer avec email puis avec username
-            utilisateur = None
-            if '@' in username:
-                utilisateur = authenticate(email=username, password=password)
-            if not utilisateur:
-                utilisateur = authenticate(username=username, password=password)
-            
-            if not utilisateur:
-                raise serializers.ValidationError("Email ou mot de passe incorrect")
-            
-            if not utilisateur.is_active:
-                raise serializers.ValidationError("Ce compte est désactivé. Veuillez contacter l'administrateur.")
-            
-            utilisateur.derniere_connexion = timezone.now()
-            utilisateur.save(update_fields=['derniere_connexion'])
-            
-            data['utilisateur'] = utilisateur
-        else:
-            raise serializers.ValidationError("Email et mot de passe requis")
+        # Déterminer l'identifiant (priorité à email si présent)
+        identifier = email if email else username
+        
+        # Validation des champs requis
+        if not identifier:
+            raise serializers.ValidationError("Email ou nom d'utilisateur requis")
+        
+        if not password:
+            raise serializers.ValidationError("Mot de passe requis")
+        
+        # Authentification
+        utilisateur = None
+        
+        # Méthode 1: Essayer avec authenticate
+        if email:
+            utilisateur = authenticate(email=email, password=password)
+        
+        # Si pas trouvé et username existe, essayer avec username
+        if not utilisateur and username:
+            utilisateur = authenticate(username=username, password=password)
+        
+        # Méthode 2: Chercher manuellement si authenticate n'a pas fonctionné
+        if not utilisateur:
+            try:
+                # Chercher par email
+                user_obj = Utilisateur.objects.filter(email=identifier).first()
+                if user_obj and user_obj.check_password(password):
+                    utilisateur = user_obj
+            except Exception:
+                pass
+        
+        # Si toujours pas trouvé, essayer par username (si le modèle a un champ username)
+        if not utilisateur:
+            try:
+                # Vérifier si le modèle a un champ username
+                if hasattr(Utilisateur, 'username'):
+                    user_obj = Utilisateur.objects.filter(username=identifier).first()
+                    if user_obj and user_obj.check_password(password):
+                        utilisateur = user_obj
+            except Exception:
+                pass
+        
+        # Si aucun utilisateur trouvé
+        if not utilisateur:
+            raise serializers.ValidationError("Email ou mot de passe incorrect")
+        
+        # Vérifier si le compte est actif
+        if not utilisateur.is_active:
+            raise serializers.ValidationError("Ce compte est désactivé. Veuillez contacter l'administrateur.")
+        
+        # Mettre à jour la dernière connexion
+        utilisateur.derniere_connexion = timezone.now()
+        utilisateur.save(update_fields=['derniere_connexion'])
+        
+        # Ajouter l'utilisateur aux données validées
+        data['utilisateur'] = utilisateur
         
         return data
+    
+    def to_representation(self, instance):
+        """
+        Personnaliser la réponse pour inclure les données utilisateur
+        """
+        return {
+            'utilisateur_id': instance.utilisateur_id,
+            'nom_complet': instance.nom_complet,
+            'email': instance.email,
+            'role': instance.role,
+            'hopital_id': instance.hopital_id if instance.hopital_id else None,
+            'is_active': instance.is_active
+        }
 
 
 class ChangePasswordSerializer(serializers.Serializer):

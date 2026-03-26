@@ -148,27 +148,27 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
 
 
 class LoginView(APIView):
-    """Vue pour l'authentification"""
+    """Vue pour l'authentification - Accepte email ou username"""
     
     permission_classes = [AllowAny]
     
     def post(self, request):
+        # CORRECTION: Support de email ou username
         serializer = LoginSerializer(data=request.data)
         
         if serializer.is_valid():
             utilisateur = serializer.validated_data['utilisateur']
             
-            if not utilisateur.pk:
-                utilisateur.save()
-            
             try:
                 refresh = RefreshToken.for_user(utilisateur)
-                user_serializer = UtilisateurSerializer(utilisateur)
+                
+                # Utiliser le serializer pour la réponse utilisateur
+                user_data = serializer.to_representation(utilisateur)
                 
                 return Response({
                     'refresh': str(refresh),
                     'access': str(refresh.access_token),
-                    'utilisateur': user_serializer.data
+                    'utilisateur': user_data
                 })
             except AttributeError as e:
                 return Response(
@@ -216,7 +216,7 @@ class InscriptionView(APIView):
             # Le serializer.create() s'occupe de créer l'utilisateur et le tenant
             utilisateur = serializer.save()
             
-            # CORRECTION BUG #1 & #3: Recharger l'utilisateur avec les relations
+            # Recharger l'utilisateur avec les relations
             utilisateur.refresh_from_db()
             
             # Générer les tokens JWT
