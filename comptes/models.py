@@ -2,6 +2,7 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 from django.db import models
 from django.utils import timezone
 from django.core.validators import EmailValidator
+from django.contrib.auth.hashers import make_password, check_password
 
 class GestionnaireUtilisateur(BaseUserManager):
     """Gestionnaire personnalisé pour les utilisateurs"""
@@ -17,7 +18,13 @@ class GestionnaireUtilisateur(BaseUserManager):
             nom_complet=nom_complet,
             **extra_fields
         )
-        utilisateur.set_password(mot_de_passe)
+        
+        # CORRECTION: Hasher le mot de passe directement
+        if mot_de_passe:
+            utilisateur.mot_de_passe = make_password(mot_de_passe)
+        else:
+            utilisateur.mot_de_passe = make_password(None)
+            
         utilisateur.save(using=self._db)
         return utilisateur
     
@@ -88,7 +95,7 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
     # Champs Django requis
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
-    is_superuser = models.BooleanField(default=False)  # AJOUT OBLIGATOIRE
+    is_superuser = models.BooleanField(default=False)
     derniere_connexion = models.DateTimeField(null=True, blank=True)
     
     # Relations spécifiques (pour les signaux)
@@ -109,6 +116,19 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return f"{self.nom_complet} ({self.get_role_display()})"
     
+    # CORRECTION: Surcharger set_password pour utiliser mot_de_passe
+    def set_password(self, raw_password):
+        """Surcharge pour utiliser le champ mot_de_passe"""
+        from django.contrib.auth.hashers import make_password
+        self.mot_de_passe = make_password(raw_password)
+        self._password = raw_password
+    
+    # CORRECTION: Surcharger check_password pour utiliser mot_de_passe
+    def check_password(self, raw_password):
+        """Surcharge pour utiliser le champ mot_de_passe"""
+        from django.contrib.auth.hashers import check_password
+        return check_password(raw_password, self.mot_de_passe)
+    
     def save(self, *args, **kwargs):
         if not self.pk:
             self.cree_le = timezone.now()
@@ -122,4 +142,4 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
             models.Index(fields=['email']),
             models.Index(fields=['role']),
             models.Index(fields=['hopital']),
-        ] 
+        ]

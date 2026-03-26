@@ -20,6 +20,8 @@ from .permissions import (
     EstPersonnel, EstPatient, PeutModifierUtilisateur
 )
 
+logger = logging.getLogger(__name__)
+
 class UtilisateurViewSet(viewsets.ModelViewSet):
     """
     ViewSet pour la gestion des utilisateurs
@@ -113,12 +115,14 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
         
         serializer = ChangePasswordSerializer(data=request.data)
         if serializer.is_valid():
+            # Vérifier l'ancien mot de passe
             if not utilisateur.check_password(serializer.validated_data['old_password']):
                 return Response(
                     {'old_password': 'Mot de passe incorrect'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
+            # Définir le nouveau mot de passe (sera hashé automatiquement)
             utilisateur.set_password(serializer.validated_data['new_password'])
             utilisateur.save()
             
@@ -145,8 +149,8 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
             'message': f'Utilisateur {status_msg} avec succès',
             'is_active': utilisateur.is_active
         })
-    
-# views.py - Partie LoginView uniquement
+
+
 class LoginView(APIView):
     """Vue pour l'authentification avec email et password"""
     
