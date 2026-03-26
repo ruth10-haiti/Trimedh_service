@@ -124,14 +124,19 @@ class InscriptionSerializer(serializers.Serializer):
         
         nom_complet = validated_data['nom_complet']
         
-        # Créer l'utilisateur
+        # CORRECTION: Utiliser la méthode creer_utilisateur (qui hash le mot de passe)
+        # Note: creer_utilisateur utilise 'mot_de_passe' comme paramètre
         utilisateur = Utilisateur.objects.creer_utilisateur(
             email=validated_data['email'],
             nom_complet=nom_complet,
-            mot_de_passe=password,
+            mot_de_passe=password,  # Utiliser 'mot_de_passe' au lieu de 'password'
             role=validated_data.get('role', 'patient'),
-            hopital=None
         )
+        
+        # Si vous devez passer hopital=None, le faire après
+        if hopital_data is None:
+            utilisateur.hopital = None
+            utilisateur.save(update_fields=['hopital'])
         
         # Appliquer is_active
         utilisateur.is_active = is_active
