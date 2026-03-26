@@ -38,14 +38,19 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
         """
         Permissions personnalisées selon l'action
         """
-        if self.action == 'create':
+        # CORRECTION: Actions accessibles à tout utilisateur authentifié
+        if self.action in ['profile', 'update_profile']:
+            permission_classes = [IsAuthenticated]
+        elif self.action == 'create':
             permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital]
         elif self.action in ['update', 'partial_update', 'destroy']:
             permission_classes = [IsAuthenticated, PeutModifierUtilisateur]
         elif self.action == 'retrieve':
             permission_classes = [IsAuthenticated]
-        else:  # list
+        elif self.action == 'list':
             permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital]
+        else:
+            permission_classes = [IsAuthenticated]
         return [permission() for permission in permission_classes]
     
     def get_queryset(self):
@@ -81,13 +86,13 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
         """Surcharge pour enregistrer qui a créé l'utilisateur"""
         serializer.save(modifie_par=self.request.user)
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def profile(self, request):
         """Récupérer le profil de l'utilisateur connecté"""
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
     
-    @action(detail=False, methods=['put', 'patch'])
+    @action(detail=False, methods=['put', 'patch'], permission_classes=[IsAuthenticated])
     def update_profile(self, request):
         """Mettre à jour le profil de l'utilisateur connecté"""
         serializer = UpdateProfileSerializer(
