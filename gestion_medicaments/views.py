@@ -232,30 +232,6 @@ class MedicamentViewSet(viewsets.ModelViewSet):
             count=Count('id')
         )
         for forme in formes:
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        
             repartition_formes[forme['forme_pharmaceutique']] = forme['count']
         
         # Top 10 des médicaments les plus chers
