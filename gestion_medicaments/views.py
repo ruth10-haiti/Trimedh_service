@@ -262,7 +262,7 @@ class MedicamentViewSet(viewsets.ModelViewSet):
         # Répartition par forme pharmaceutique
         repartition_formes = {}
         formes = queryset.filter(actif=True).values('forme_pharmaceutique').annotate(
-            count=Count('id')
+            count=Count('medicament_id')
         )
         for forme in formes:
             repartition_formes[forme['forme_pharmaceutique']] = forme['count']
