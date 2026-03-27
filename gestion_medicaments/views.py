@@ -6,6 +6,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Q, Sum, Count
+from django.db import models
 from datetime import datetime, timedelta
 from .models import Medicament, MedicamentCategorie
 from .serializers import (
