@@ -1,3 +1,4 @@
+# comptes/permissions.py
 from rest_framework import permissions
 from .models import Utilisateur
 
@@ -159,3 +160,101 @@ class PeutVoirFactures(permissions.BasePermission):
             return True
         
         return hasattr(obj, 'tenant') and obj.tenant == request.user.hopital
+
+
+# ========== PERMISSIONS POUR LES MÉDICAMENTS ==========
+
+class PeutGererMedicaments(permissions.BasePermission):
+    """
+    Permission pour gérer les médicaments (CRUD complet)
+    Seuls les admin système et propriétaires d'hôpital peuvent gérer
+    """
+    
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        # Admin système ou propriétaire d'hôpital
+        roles_autorises = ['admin-systeme', 'proprietaire-hopital']
+        return hasattr(request.user, 'role') and request.user.role in roles_autorises
+    
+    def has_object_permission(self, request, view, obj):
+        if not request.user.is_authenticated:
+            return False
+        
+        # Admin système peut tout faire
+        if hasattr(request.user, 'role') and request.user.role == 'admin-systeme':
+            return True
+        
+        # Propriétaire peut gérer les médicaments de son hôpital
+        if hasattr(request.user, 'role') and request.user.role == 'proprietaire-hopital':
+            if hasattr(obj, 'tenant') and hasattr(request.user, 'hopital'):
+                return obj.tenant == request.user.hopital
+            elif hasattr(obj, 'hopital') and hasattr(request.user, 'hopital'):
+                return obj.hopital == request.user.hopital
+        
+        return False
+
+
+class PeutModifierStock(permissions.BasePermission):
+    """
+    Permission pour modifier le stock
+    Admin système, propriétaires d'hôpital et médecins peuvent modifier
+    """
+    
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        # Admin système, propriétaire ou médecin
+        roles_autorises = ['admin-systeme', 'proprietaire-hopital', 'medecin']
+        return hasattr(request.user, 'role') and request.user.role in roles_autorises
+    
+    def has_object_permission(self, request, view, obj):
+        if not request.user.is_authenticated:
+            return False
+        
+        # Admin système peut tout faire
+        if hasattr(request.user, 'role') and request.user.role == 'admin-systeme':
+            return True
+        
+        # Propriétaire peut modifier le stock de son hôpital
+        if hasattr(request.user, 'role') and request.user.role == 'proprietaire-hopital':
+            if hasattr(obj, 'tenant') and hasattr(request.user, 'hopital'):
+                return obj.tenant == request.user.hopital
+            elif hasattr(obj, 'hopital') and hasattr(request.user, 'hopital'):
+                return obj.hopital == request.user.hopital
+        
+        # Médecin peut modifier le stock de son hôpital
+        if hasattr(request.user, 'role') and request.user.role == 'medecin':
+            if hasattr(obj, 'tenant') and hasattr(request.user, 'hopital'):
+                return obj.tenant == request.user.hopital
+            elif hasattr(obj, 'hopital') and hasattr(request.user, 'hopital'):
+                return obj.hopital == request.user.hopital
+        
+        return False
+
+
+class PeutVoirMedicaments(permissions.BasePermission):
+    """
+    Permission pour voir les médicaments
+    Tous les utilisateurs authentifiés peuvent voir
+    """
+    
+    def has_permission(self, request, view):
+        return request.user.is_authenticated
+    
+    def has_object_permission(self, request, view, obj):
+        if not request.user.is_authenticated:
+            return False
+        
+        # Admin système voit tout
+        if hasattr(request.user, 'role') and request.user.role == 'admin-systeme':
+            return True
+        
+        # Les autres voient seulement les médicaments de leur hôpital
+        if hasattr(request.user, 'hopital') and request.user.hopital:
+            if hasattr(obj, 'tenant'):
+                return obj.tenant == request.user.hopital
+            elif hasattr(obj, 'hopital'):
+                return obj.hopital == request.user.hopital
+        
+        return False

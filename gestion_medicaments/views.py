@@ -1,3 +1,4 @@
+# gestion_medicaments/views.py
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -5,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.db.models import Q, Sum, Count
+from django.db.models import Q, Sum, Count, Avg
 from django.db import models
 from datetime import datetime, timedelta
 from .models import Medicament, MedicamentCategorie
@@ -15,7 +16,10 @@ from .serializers import (
     MedicamentRuptureSerializer, MedicamentStatistiquesSerializer,
     MedicamentRechercheSerializer
 )
-from comptes.permissions import EstMedecin, EstPersonnel
+from comptes.permissions import (
+    EstAdminSysteme, EstProprietaireHopital, EstMedecin, 
+    EstPersonnel, PeutGererMedicaments, PeutModifierStock
+)
 
 class MedicamentCategorieViewSet(viewsets.ModelViewSet):
     """ViewSet pour les catégories de médicaments"""
@@ -28,8 +32,10 @@ class MedicamentCategorieViewSet(viewsets.ModelViewSet):
     ordering = ['nom']
     
     def get_permissions(self):
+        """Permissions personnalisées selon l'action"""
+        # CORRECTION: Admin système et propriétaire peuvent tout faire
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel]
+            permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital]
         else:
             permission_classes = [IsAuthenticated]
         return [permission() for permission in permission_classes]
@@ -38,7 +44,11 @@ class MedicamentCategorieViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         user = self.request.user
         
-        # Filtrage par tenant
+        # Admin système voit tout
+        if user.role == 'admin-systeme':
+            return queryset
+        
+        # Les autres voient seulement leur tenant
         if user.hopital:
             queryset = queryset.filter(tenant=user.hopital)
         
@@ -46,6 +56,7 @@ class MedicamentCategorieViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.user.hopital)
+
 
 class MedicamentViewSet(viewsets.ModelViewSet):
     """ViewSet pour les médicaments"""
@@ -66,17 +77,35 @@ class MedicamentViewSet(viewsets.ModelViewSet):
         return super().get_serializer_class()
     
     def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel]
+        """
+        Permissions personnalisées selon l'action
+        """
+        # Actions en lecture : tout le monde peut voir
+        if self.action in ['list', 'retrieve', 'stock_faible', 'rupture_stock', 'statistiques', 'recherche_avancee', 'export_stock']:
+            permission_classes = [IsAuthenticated]
+        
+        # CORRECTION: Gestion des médicaments (create, update, delete) : admin et propriétaire
+        elif self.action in ['create', 'update', 'partial_update', 'destroy']:
+            permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital]
+        
+        # CORRECTION: Modification du stock : admin, propriétaire et médecin
+        elif self.action == 'mettre_a_jour_stock':
+            permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital | EstMedecin]
+        
         else:
             permission_classes = [IsAuthenticated]
+        
         return [permission() for permission in permission_classes]
     
     def get_queryset(self):
         queryset = super().get_queryset()
         user = self.request.user
         
-        # Filtrage par tenant
+        # Admin système voit tout
+        if user.role == 'admin-systeme':
+            return queryset
+        
+        # Les autres voient seulement leur tenant
         if user.hopital:
             queryset = queryset.filter(tenant=user.hopital)
         
@@ -107,15 +136,21 @@ class MedicamentViewSet(viewsets.ModelViewSet):
         return queryset.select_related('categorie')
     
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.user.hopital)
+        """Création d'un médicament"""
+        # CORRECTION: Admin système et propriétaire peuvent créer
+        user = self.request.user
+        if user.role in ['admin-systeme', 'proprietaire-hopital']:
+            serializer.save(tenant=user.hopital)
+        else:
+            serializer.save(tenant=user.hopital)
     
     @action(detail=True, methods=['post'])
     def mettre_a_jour_stock(self, request, pk=None):
         """Mettre à jour le stock d'un médicament"""
         medicament = self.get_object()
         
-        # Vérifier les permissions
-        if request.user.role not in ['medecin', 'infirmier', 'personnel', 'secretaire']:
+        # CORRECTION: Vérifier les permissions
+        if request.user.role not in ['admin-systeme', 'proprietaire-hopital', 'medecin']:
             return Response(
                 {'error': 'Vous n\'avez pas la permission de modifier le stock'},
                 status=status.HTTP_403_FORBIDDEN
@@ -151,9 +186,6 @@ class MedicamentViewSet(viewsets.ModelViewSet):
                 medicament.prix_unitaire = nouveau_prix
             
             medicament.save()
-            
-            # Dans une vraie application, on sauvegarderait l'historique
-            # HistoriqueMouvement.objects.create(...)
             
             return Response({
                 'message': f'Stock mis à jour: {ancien_stock} → {nouveau_stock}',
@@ -225,7 +257,7 @@ class MedicamentViewSet(viewsets.ModelViewSet):
         # Nombre de catégories
         categories_count = MedicamentCategorie.objects.filter(
             tenant=request.user.hopital
-        ).count()
+        ).count() if request.user.hopital else MedicamentCategorie.objects.count()
         
         # Répartition par forme pharmaceutique
         repartition_formes = {}
@@ -282,15 +314,14 @@ class MedicamentViewSet(viewsets.ModelViewSet):
             'medicaments_actifs': medicaments_actifs,
             'medicaments_rupture': medicaments_rupture,
             'medicaments_stock_faible': medicaments_stock_faible,
-            'valeur_stock_total': valeur_stock,
+            'valeur_stock_total': float(valeur_stock),
             'categories_count': categories_count,
             'repartition_formes': repartition_formes,
             'top_medicaments_chers': top_medicaments_chers,
             'attention_requise': attention_requise
         }
         
-        serializer = MedicamentStatistiquesSerializer(data)
-        return Response(serializer.data)
+        return Response(data)
     
     @action(detail=False, methods=['post'])
     def recherche_avancee(self, request):
