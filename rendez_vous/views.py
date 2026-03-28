@@ -107,6 +107,9 @@ class RendezVousViewSet(viewsets.ModelViewSet):
         elif self.action in ['confirmer', 'annuler', 'reporter']:
             # Patients, médecins et personnel peuvent confirmer/annuler/reporter
             permission_classes = [IsAuthenticated, EstPatient | EstMedecin | EstPersonnel]
+        elif self.action == 'rendez_vous_patient':
+            # Permissions pour l'action patient
+            permission_classes = [IsAuthenticated, EstMedecin | EstPersonnel | EstAdminSysteme | EstProprietaireHopital]
         else:
             permission_classes = [IsAuthenticated]
         return [permission() for permission in permission_classes]
@@ -177,6 +180,22 @@ class RendezVousViewSet(viewsets.ModelViewSet):
         else:
             serializer.save(tenant=user.hopital)
     
+    def create(self, request, *args, **kwargs):
+        """Override create method to debug 400 errors"""
+        # Log des données reçues pour déboguer l'erreur 400
+        print("=" * 50)
+        print("📝 Données reçues pour création rendez-vous:")
+        print(f"   User: {request.user} (role: {request.user.role if hasattr(request.user, 'role') else 'N/A'})")
+        print(f"   Data: {request.data}")
+        print(f"   Headers: {dict(request.headers)}")
+        print("=" * 50)
+        
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            print(f"❌ Erreur lors de la création: {str(e)}")
+            raise
+    
     @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
     def mes_rendez_vous(self, request):
         """Récupérer les rendez-vous de l'utilisateur connecté"""
@@ -207,6 +226,65 @@ class RendezVousViewSet(viewsets.ModelViewSet):
                 pass
         
         serializer = RendezVousListSerializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='patient/(?P<patient_id>[^/.]+)')
+    def rendez_vous_patient(self, request, patient_id=None):
+        """
+        Récupérer tous les rendez-vous d'un patient spécifique
+        URL: /api/rendez-vous/patient/{patient_id}/
+        """
+        print(f"📋 Récupération des rendez-vous pour le patient ID: {patient_id}")
+        
+        # Vérifier que l'utilisateur a les droits
+        user = request.user
+        
+        # Si c'est un patient, il ne peut voir que ses propres rendez-vous
+        if user.role == 'patient' and hasattr(user, 'patient'):
+            if str(user.patient.id) != patient_id:
+                return Response(
+                    {'error': 'Vous ne pouvez voir que vos propres rendez-vous'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        # Récupérer les rendez-vous du patient
+        queryset = self.get_queryset().filter(patient_id=patient_id)
+        
+        # Filtrer par statut si spécifié
+        statut = request.query_params.get('statut', None)
+        if statut:
+            queryset = queryset.filter(statut__nom__iexact=statut)
+        
+        # Filtrer par date si spécifiée
+        date = request.query_params.get('date', None)
+        if date:
+            try:
+                date_obj = datetime.strptime(date, '%Y-%m-%d').date()
+                queryset = queryset.filter(date_heure__date=date_obj)
+            except ValueError:
+                pass
+        
+        # Filtrer par plage de dates
+        date_debut = request.query_params.get('date_debut', None)
+        if date_debut:
+            try:
+                date_debut_obj = datetime.strptime(date_debut, '%Y-%m-%d').date()
+                queryset = queryset.filter(date_heure__date__gte=date_debut_obj)
+            except ValueError:
+                pass
+        
+        date_fin = request.query_params.get('date_fin', None)
+        if date_fin:
+            try:
+                date_fin_obj = datetime.strptime(date_fin, '%Y-%m-%d').date()
+                queryset = queryset.filter(date_heure__date__lte=date_fin_obj)
+            except ValueError:
+                pass
+        
+        serializer = RendezVousListSerializer(queryset, many=True)
+        
+        print(f"✅ {queryset.count()} rendez-vous trouvés pour le patient {patient_id}")
+        
         return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
