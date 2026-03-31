@@ -7,9 +7,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 from django_filters.rest_framework import DjangoFilterBackend
 from django.contrib.auth import authenticate
-from django.conf import settings
-import logging
-from django.db import transaction
 from .models import Utilisateur
 from .serializers import (
     UtilisateurSerializer, InscriptionSerializer,
@@ -20,79 +17,63 @@ from .permissions import (
     EstPersonnel, EstPatient, PeutModifierUtilisateur
 )
 
-logger = logging.getLogger(__name__)
 
 class UtilisateurViewSet(viewsets.ModelViewSet):
     """
     ViewSet pour la gestion des utilisateurs
     """
-    queryset = Utilisateur.objects.all().order_by('-cree_le')
+    queryset = Utilisateur.objects.all()
     serializer_class = UtilisateurSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['role', 'hopital', 'is_active']
     search_fields = ['email', 'nom_complet']
     ordering_fields = ['nom_complet', 'cree_le', 'derniere_connexion']
-    ordering = ['-cree_le'] 
-    
+
     def get_permissions(self):
-        """
-        Permissions personnalisées selon l'action
-        """
-        # CORRECTION: Actions accessibles à tout utilisateur authentifié
-        if self.action in ['profile', 'update_profile']:
-            permission_classes = [IsAuthenticated]
-        elif self.action == 'create':
+        """Permissions personnalisées selon l'action"""
+        if self.action == 'create':
             permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital]
         elif self.action in ['update', 'partial_update', 'destroy']:
             permission_classes = [IsAuthenticated, PeutModifierUtilisateur]
         elif self.action == 'retrieve':
             permission_classes = [IsAuthenticated]
-        elif self.action == 'list':
+        else:  # list
             permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital]
-        else:
-            permission_classes = [IsAuthenticated]
         return [permission() for permission in permission_classes]
-    
+
     def get_queryset(self):
-        """
-        Filtrer les utilisateurs selon les permissions avec vérification pour Swagger
-        """
-        if getattr(self, 'swagger_fake_view', False):
-            return Utilisateur.objects.none()
-        
+        """Filtrer les utilisateurs selon les permissions"""
+        queryset = super().get_queryset()
         user = self.request.user
-        
-        if not user.is_authenticated:
-            return Utilisateur.objects.none()
-        
-        if hasattr(user, 'role') and user.role == 'admin-systeme':
-            return Utilisateur.objects.all()
-        
-        if hasattr(user, 'role') and user.role == 'proprietaire-hopital' and hasattr(user, 'hopital') and user.hopital:
-            return Utilisateur.objects.filter(hopital=user.hopital)
-        
-        if hasattr(user, 'role') and user.role == 'medecin' and hasattr(user, 'hopital') and user.hopital:
-            return Utilisateur.objects.filter(hopital=user.hopital).exclude(role='patient')
-        
-        if hasattr(user, 'role') and user.role in ['personnel', 'secretaire', 'infirmier'] and hasattr(user, 'hopital') and user.hopital:
-            return Utilisateur.objects.filter(hopital=user.hopital).exclude(role='patient')
-        
-        if hasattr(user, 'role') and user.role == 'patient':
-            return Utilisateur.objects.filter(pk=user.pk)
-        
+
+        if user.role == 'admin-systeme':
+            return queryset
+
+        if user.role == 'proprietaire-hopital' and user.hopital:
+            return queryset.filter(hopital=user.hopital)
+
+        if user.role == 'medecin' and user.hopital:
+            return queryset.filter(hopital=user.hopital).exclude(role='patient')
+
+        if user.role in ['personnel', 'secretaire', 'infirmier'] and user.hopital:
+            return queryset.filter(hopital=user.hopital).exclude(role='patient')
+
+        if user.role == 'patient':
+            return queryset.filter(pk=user.pk)
+
         return Utilisateur.objects.none()
-    
+
     def perform_create(self, serializer):
         """Surcharge pour enregistrer qui a créé l'utilisateur"""
         serializer.save(modifie_par=self.request.user)
-    
-    @action(detail=False, methods=['get'], permission_classes=[IsAuthenticated])
+
+    @action(detail=False, methods=['get'])
     def profile(self, request):
         """Récupérer le profil de l'utilisateur connecté"""
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
-    
-    @action(detail=False, methods=['put', 'patch'], permission_classes=[IsAuthenticated])
+
+    @action(detail=False, methods=['put', 'patch'])
     def update_profile(self, request):
         """Mettre à jour le profil de l'utilisateur connecté"""
         serializer = UpdateProfileSerializer(
@@ -104,51 +85,49 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     @action(detail=True, methods=['post'])
     def change_password(self, request, pk=None):
         """Changer le mot de passe d'un utilisateur"""
         utilisateur = self.get_object()
-        
+
         if utilisateur != request.user and not (
-            hasattr(request.user, 'role') and request.user.role in ['admin-systeme', 'proprietaire-hopital']
+            request.user.role in ['admin-systeme', 'proprietaire-hopital']
         ):
             return Response(
                 {'error': 'Vous n\'avez pas la permission de modifier ce mot de passe'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+
         serializer = ChangePasswordSerializer(data=request.data)
         if serializer.is_valid():
-            # Vérifier l'ancien mot de passe
             if not utilisateur.check_password(serializer.validated_data['old_password']):
                 return Response(
                     {'old_password': 'Mot de passe incorrect'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # Définir le nouveau mot de passe (sera hashé automatiquement)
+
             utilisateur.set_password(serializer.validated_data['new_password'])
             utilisateur.save()
-            
+
             return Response({'message': 'Mot de passe mis à jour avec succès'})
-        
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
     @action(detail=True, methods=['post'])
     def toggle_active(self, request, pk=None):
         """Activer/désactiver un utilisateur"""
         utilisateur = self.get_object()
-        
-        if not (hasattr(request.user, 'role') and request.user.role in ['admin-systeme', 'proprietaire-hopital']):
+
+        if request.user.role not in ['admin-systeme', 'proprietaire-hopital']:
             return Response(
                 {'error': 'Vous n\'avez pas la permission de modifier cet utilisateur'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+
         utilisateur.is_active = not utilisateur.is_active
         utilisateur.save()
-        
+
         status_msg = 'activé' if utilisateur.is_active else 'désactivé'
         return Response({
             'message': f'Utilisateur {status_msg} avec succès',
@@ -157,48 +136,47 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
 
 
 class LoginView(APIView):
-    """Vue pour l'authentification avec email et password"""
-    
+    """Vue pour l'authentification"""
+
     permission_classes = [AllowAny]
-    
+
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
-        
+
         if serializer.is_valid():
             utilisateur = serializer.validated_data['utilisateur']
-            
-            try:
-                refresh = RefreshToken.for_user(utilisateur)
-                
-                # Utiliser le serializer pour la réponse utilisateur
-                user_data = serializer.to_representation(utilisateur)
-                
-                return Response({
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token),
-                    'utilisateur': user_data
-                })
-            except AttributeError as e:
-                return Response(
-                    {'error': f'Erreur de configuration du token: {str(e)}'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-        
+
+            # Générer les tokens JWT
+            refresh = RefreshToken.for_user(utilisateur)
+
+            # Sérialiser les données utilisateur
+            user_serializer = UtilisateurSerializer(utilisateur)
+            user_data = user_serializer.data
+
+            return Response({
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+                # ✅ 'user' (pa 'utilisateur') — pou match ak React djangoAuthApi.ts
+                'user': user_data,
+                # ✅ tenant separe — pou mapUserResponse() jwenn li fasil
+                'tenant': user_data.get('hopital_detail')
+            })
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class LogoutView(APIView):
     """Vue pour la déconnexion"""
-    
+
     permission_classes = [IsAuthenticated]
-    
+
     def post(self, request):
         try:
             refresh_token = request.data.get("refresh_token")
             if refresh_token:
                 token = RefreshToken(refresh_token)
                 token.blacklist()
-            
+
             return Response(
                 {'message': 'Déconnexion réussie'},
                 status=status.HTTP_205_RESET_CONTENT
@@ -211,43 +189,28 @@ class LogoutView(APIView):
 
 
 class InscriptionView(APIView):
-    """Vue pour l'inscription (patients et propriétaires d'hôpitaux)"""
-    
+    """Vue pour l'inscription des hôpitaux"""
+
     permission_classes = [AllowAny]
-    
-    @transaction.atomic
+
     def post(self, request):
-        # Utiliser InscriptionSerializer qui gère hopital_data
         serializer = InscriptionSerializer(data=request.data)
-        
+
         if serializer.is_valid():
-            # Le serializer.create() s'occupe de créer l'utilisateur et le tenant
             utilisateur = serializer.save()
-            
-            # Recharger l'utilisateur avec les relations
-            utilisateur.refresh_from_db()
-            
+
             # Générer les tokens JWT
-            try:
-                refresh = RefreshToken.for_user(utilisateur)
-                user_serializer = UtilisateurSerializer(utilisateur)
-                
-                # Message personnalisé selon le rôle
-                message = "Inscription réussie"
-                if utilisateur.role == 'proprietaire-hopital':
-                    message = "Inscription réussie. Votre compte sera activé après vérification des documents."
-                
-                return Response({
-                    'refresh': str(refresh),
-                    'access': str(refresh.access_token),
-                    'utilisateur': user_serializer.data,
-                    'message': message
-                }, status=status.HTTP_201_CREATED)
-                
-            except AttributeError as e:
-                return Response(
-                    {'error': f'Erreur lors de la création du token: {str(e)}'},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-        
+            refresh = RefreshToken.for_user(utilisateur)
+            user_serializer = UtilisateurSerializer(utilisateur)
+            user_data = user_serializer.data
+
+            return Response({
+                'refresh': str(refresh),
+                'access': str(refresh.access_token),
+                # ✅ 'user' pou match ak React
+                'user': user_data,
+                'tenant': user_data.get('hopital_detail'),
+                'message': 'Inscription réussie'
+            }, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

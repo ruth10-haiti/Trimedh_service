@@ -15,7 +15,7 @@ class Patient(models.Model):
         'gestion_tenants.Tenant',
         on_delete=models.CASCADE,
         db_column='hopital_id',
-        null=True,  # CORRECTION: Rendre optionnel pour les patients sans hôpital
+        null=True, 
         blank=True
     )
     
