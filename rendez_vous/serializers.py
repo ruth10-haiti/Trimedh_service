@@ -129,31 +129,21 @@ class CreneauDisponibleSerializer(serializers.Serializer):
     duree = serializers.IntegerField()
 
 class RendezVousCreateSerializer(serializers.ModelSerializer):
-    """Serializer pour la création de rendez-vous"""
+    type = serializers.SlugRelatedField(slug_field='nom', queryset=RendezVousType.objects.all())
+    statut = serializers.SlugRelatedField(slug_field='nom', queryset=RendezVousStatut.objects.all(), required=False)
+
     class Meta:
         model = RendezVous
-        fields = ['patient', 'medecin', 'date_heure', 'type', 'motif', 'notes']
-    
-    def validate_date_heure(self, value):
-        """Validation de la date et heure"""
-        if value < timezone.now():
-            raise serializers.ValidationError("La date du rendez-vous ne peut pas être dans le passé")
-        return value
-    
+        fields = ['patient', 'medecin', 'date_heure', 'type', 'statut', 'motif', 'notes']
+
     def create(self, validated_data):
-        # Ajouter le tenant automatiquement
         validated_data['tenant'] = self.context['request'].user.hopital
-        
-        # Définir le statut par défaut
-        statut_defaut, created = RendezVousStatut.objects.get_or_create(
-            tenant=validated_data['tenant'],
-            nom='Planifié',
-            defaults={
-                'description': 'Rendez-vous planifié',
-                'couleur': '#3498db',
-                'est_confirme': False
-            }
-        )
-        validated_data['statut'] = statut_defaut
-        
+        if 'statut' not in validated_data:
+            # Valeur par défaut si non fourni
+            statut_defaut, _ = RendezVousStatut.objects.get_or_create(
+                tenant=validated_data['tenant'],
+                nom='Planifié',
+                defaults={'couleur': '#3498db', 'est_confirme': False}
+            )
+            validated_data['statut'] = statut_defaut
         return super().create(validated_data)
