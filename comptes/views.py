@@ -37,9 +37,11 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
             permission_classes = [IsAuthenticated, PeutModifierUtilisateur]
         elif self.action == 'retrieve':
             permission_classes = [IsAuthenticated]
-        else:  # list
-            permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital]
+        # Dans get_permissions() du UtilisateurViewSet
+        elif self.action == 'list':
+            permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital | EstMedecin]
         return [permission() for permission in permission_classes]
+    
 
     def get_queryset(self):
         """Filtrer les utilisateurs selon les permissions"""

@@ -84,9 +84,8 @@ class MedicamentViewSet(viewsets.ModelViewSet):
         if self.action in ['list', 'retrieve', 'stock_faible', 'rupture_stock', 'statistiques', 'recherche_avancee', 'export_stock']:
             permission_classes = [IsAuthenticated]
         
-        # CORRECTION: Gestion des médicaments (create, update, delete) : admin et propriétaire
         elif self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital]
+            permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital | EstMedecin]
         
         # CORRECTION: Modification du stock : admin, propriétaire et médecin
         elif self.action == 'mettre_a_jour_stock':
