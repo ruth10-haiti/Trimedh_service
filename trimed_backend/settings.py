@@ -103,7 +103,7 @@ WSGI_APPLICATION = 'trimed_backend.wsgi.application'
 # Database configuration
 DATABASES = {
     'default': dj_database_url.config(
-        default=config('DATABASE_URL', default='postgresql://localhost:5432/Trimedh_BD'),
+        default=config('DATABASE_URL', default='postgresql://localhost:5432/Trimed_BD'),
         conn_max_age=600
     )
 }
