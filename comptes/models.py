@@ -81,14 +81,14 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
         default=Role.PATIENT
     )
     
-    hopital = models.ForeignKey(
-        'gestion_tenants.Tenant',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        db_column='hopital_id',
-        related_name='utilisateurs'
-    )
+    # hopital = models.ForeignKey(
+    #     'gestion_tenants.Tenant',
+    #     on_delete=models.SET_NULL,
+    #     null=True,
+    #     blank=True,
+    #     db_column='hopital_id',
+    #     related_name='utilisateurs'
+    # )
     
     cree_le = models.DateTimeField(default=timezone.now)
     
@@ -141,5 +141,5 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
         indexes = [
             models.Index(fields=['email']),
             models.Index(fields=['role']),
-            models.Index(fields=['hopital']),
+            # models.Index(fields=['hopital']),
         ]
