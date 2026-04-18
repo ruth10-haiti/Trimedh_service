@@ -4,8 +4,8 @@ from .models import Utilisateur
 
 @admin.register(Utilisateur)
 class UtilisateurAdmin(BaseUserAdmin):
-    list_display = ('email', 'nom_complet', 'role', 'hopital', 'is_active', 'cree_le')
-    list_filter = ('role', 'is_active', 'hopital', 'is_staff')
+    list_display = ('email', 'nom_complet', 'role',  'is_active', 'cree_le') #'hopital',
+    list_filter = ('role', 'is_active', 'is_staff')# 'hopital',
     search_fields = ('email', 'nom_complet')
     ordering = ('email',)
     
