@@ -59,6 +59,8 @@ INSTALLED_APPS = [
     'rendez_vous',
     'facturation',
     'notifications',
+    'hospitalisation',
+    'salles',
 
 ]
 
