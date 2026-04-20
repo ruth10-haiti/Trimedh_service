@@ -3,14 +3,6 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.utils import timezone
 from .models import Utilisateur
-import secrets
-import string
-from django.conf import settings
-from django.core.mail import send_mail
-from django.template.loader import render_to_string
-from django.utils.encoding import force_bytes
-from django.utils.http import urlsafe_base64_encode
-from .tokens import account_activation_token
 
 
 class UtilisateurSerializer(serializers.ModelSerializer):
@@ -92,84 +84,32 @@ class UtilisateurSerializer(serializers.ModelSerializer):
         return instance
 
 
-# class InscriptionSerializer(serializers.ModelSerializer):
-#     password = serializers.CharField(write_only=True, required=True, min_length=8)
-#     confirm_password = serializers.CharField(write_only=True, required=True)
-
-#     class Meta:
-#         model = Utilisateur
-#         fields = ['nom_complet', 'email', 'password', 'confirm_password', 'role', 'hopital']
-
-#     def validate(self, data):
-#         if data['password'] != data['confirm_password']:
-#             raise serializers.ValidationError({
-#                 'password': 'Les mots de passe ne correspondent pas'
-#             })
-#         return data
-
-#     def create(self, validated_data):
-#         validated_data.pop('confirm_password')
-#         password = validated_data.pop('password')
-
-#         utilisateur = Utilisateur.objects.creer_utilisateur(
-#             email=validated_data['email'],
-#             nom_complet=validated_data['nom_complet'],
-#             mot_de_passe=password,
-#             role=validated_data.get('role', 'patient'),
-#             hopital=validated_data.get('hopital')
-#         )
-#         return utilisateur
-# Dans votre serializers.py actuel
-
 class InscriptionSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=False)  # plus obligatoire
-    confirm_password = serializers.CharField(write_only=True, required=False)
+    password = serializers.CharField(write_only=True, required=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, required=True)
 
     class Meta:
         model = Utilisateur
         fields = ['nom_complet', 'email', 'password', 'confirm_password', 'role', 'hopital']
-        extra_kwargs = {
-            'password': {'required': False},
-            'confirm_password': {'required': False},
-        }
 
     def validate(self, data):
-        # On n'exige plus de mot de passe, on va en générer un temporaire
-        # Mais si l'utilisateur en fournit un, on le valide
-        password = data.get('password')
-        confirm = data.get('confirm_password')
-        if password or confirm:
-            if password != confirm:
-                raise serializers.ValidationError({
-                    'password': 'Les mots de passe ne correspondent pas'
-                })
-            if len(password) < 8:
-                raise serializers.ValidationError({
-                    'password': 'Le mot de passe doit faire au moins 8 caractères'
-                })
+        if data['password'] != data['confirm_password']:
+            raise serializers.ValidationError({
+                'password': 'Les mots de passe ne correspondent pas'
+            })
         return data
 
     def create(self, validated_data):
-        # Générer un mot de passe temporaire sécurisé
-        alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
-        temp_password = ''.join(secrets.choice(alphabet) for _ in range(12))
-        
-        # Si l'utilisateur a fourni son propre mot de passe, on l'utilise (optionnel)
-        password = validated_data.pop('password', None) or temp_password
-        validated_data.pop('confirm_password', None)
-        
-        # Création de l'utilisateur via votre manager
+        validated_data.pop('confirm_password')
+        password = validated_data.pop('password')
+
         utilisateur = Utilisateur.objects.creer_utilisateur(
             email=validated_data['email'],
             nom_complet=validated_data['nom_complet'],
             mot_de_passe=password,
             role=validated_data.get('role', 'patient'),
-            hopital=validated_data.get('hopital'),
-            is_active=False,  # 🔒 Désactivé jusqu'à vérification
+            hopital=validated_data.get('hopital')
         )
-        
-        # Stocker le mot de passe temporaire pour l'utiliser dans l'email
-        self.temp_password = password
         return utilisateur
 
 

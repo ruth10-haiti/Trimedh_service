@@ -13,18 +13,13 @@ class GestionnaireUtilisateur(BaseUserManager):
             raise ValueError('L\'email est obligatoire')
         
         email = self.normalize_email(email)
-        
-        # Si is_active n'est pas fourni dans extra_fields, on le met à False (vérification email requise)
-        if 'is_active' not in extra_fields:
-            extra_fields.setdefault('is_active', False)
-        
         utilisateur = self.model(
             email=email,
             nom_complet=nom_complet,
             **extra_fields
         )
         
-        # Hachage du mot de passe
+        # CORRECTION: Hasher le mot de passe directement
         if mot_de_passe:
             utilisateur.mot_de_passe = make_password(mot_de_passe)
         else:
@@ -38,8 +33,8 @@ class GestionnaireUtilisateur(BaseUserManager):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('role', 'admin-systeme')
-        extra_fields.setdefault('is_active', True)  # Superutilisateur actif sans vérification
         
+        # Vérifications
         if extra_fields.get('is_staff') is not True:
             raise ValueError('Le superutilisateur doit avoir is_staff=True.')
         if extra_fields.get('is_superuser') is not True:
@@ -98,7 +93,7 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
     cree_le = models.DateTimeField(default=timezone.now)
     
     # Champs Django requis
-    is_active = models.BooleanField(default=False)   # 🔒 Changé à False : vérification email requise
+    is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     is_superuser = models.BooleanField(default=False)
     derniere_connexion = models.DateTimeField(null=True, blank=True)
@@ -121,12 +116,14 @@ class Utilisateur(AbstractBaseUser, PermissionsMixin):
     def __str__(self):
         return f"{self.nom_complet} ({self.get_role_display()})"
     
+    # CORRECTION: Surcharger set_password pour utiliser mot_de_passe
     def set_password(self, raw_password):
         """Surcharge pour utiliser le champ mot_de_passe"""
         from django.contrib.auth.hashers import make_password
         self.mot_de_passe = make_password(raw_password)
         self._password = raw_password
     
+    # CORRECTION: Surcharger check_password pour utiliser mot_de_passe
     def check_password(self, raw_password):
         """Surcharge pour utiliser le champ mot_de_passe"""
         from django.contrib.auth.hashers import check_password
