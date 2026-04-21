@@ -6,6 +6,7 @@ from django.utils.http import urlsafe_base64_encode
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.conf import settings
+from django.urls import reverse  # Ajouté pour construire l'URL absolue
 from .tokens import account_activation_token
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
@@ -46,7 +47,6 @@ class UtilisateurViewSet(viewsets.ModelViewSet):
             permission_classes = [IsAuthenticated, PeutModifierUtilisateur]
         elif self.action == 'retrieve':
             permission_classes = [IsAuthenticated]
-        # Dans get_permissions() du UtilisateurViewSet
         elif self.action == 'list':
             permission_classes = [IsAuthenticated, EstAdminSysteme | EstProprietaireHopital | EstMedecin]
         return [permission() for permission in permission_classes]
@@ -157,19 +157,14 @@ class LoginView(APIView):
         if serializer.is_valid():
             utilisateur = serializer.validated_data['utilisateur']
 
-            # Générer les tokens JWT
             refresh = RefreshToken.for_user(utilisateur)
-
-            # Sérialiser les données utilisateur
             user_serializer = UtilisateurSerializer(utilisateur)
             user_data = user_serializer.data
 
             return Response({
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
-                # ✅ 'user' (pa 'utilisateur') — pou match ak React djangoAuthApi.ts
                 'user': user_data,
-                # ✅ tenant separe — pou mapUserResponse() jwenn li fasil
                 'tenant': user_data.get('hopital_detail')
             })
 
@@ -198,6 +193,7 @@ class LogoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+
 class InscriptionView(APIView):
     permission_classes = [AllowAny]
 
@@ -207,10 +203,13 @@ class InscriptionView(APIView):
             utilisateur = serializer.save()
             temp_password = serializer.temp_password
 
-            # Générer le lien de vérification vers le FRONTEND (PC 2)
+            # Générer le lien de vérification vers l'API (pas vers un frontend externe)
             uid = urlsafe_base64_encode(force_bytes(utilisateur.pk))
             token = account_activation_token.make_token(utilisateur)
-            verification_link = f"{settings.FRONTEND_URL}/verifier-email?uidb64={uid}&token={token}"
+            # Construire l'URL absolue vers la vue VerifyEmailView
+            verification_link = request.build_absolute_uri(
+                reverse('verify-email') + f"?uidb64={uid}&token={token}"
+            )
 
             # Envoyer l'email
             subject = "Activez votre compte TRIMED"
@@ -230,12 +229,12 @@ class InscriptionView(APIView):
                 fail_silently=False,
             )
 
-            # On ne renvoie pas de token JWT ici car le compte n'est pas actif
             return Response({
                 'message': 'Inscription réussie. Vérifiez votre email pour activer votre compte.',
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class VerifyEmailView(APIView):
     permission_classes = [AllowAny]
@@ -259,30 +258,3 @@ class VerifyEmailView(APIView):
             return Response({"message": "Email vérifié avec succès ! Vous pouvez maintenant vous connecter."})
         else:
             return Response({"error": "Lien invalide ou expiré."}, status=status.HTTP_400_BAD_REQUEST)
-
-# class InscriptionView(APIView):
-#     """Vue pour l'inscription des hôpitaux"""
-
-#     permission_classes = [AllowAny]
-
-#     def post(self, request):
-#         serializer = InscriptionSerializer(data=request.data)
-
-#         if serializer.is_valid():
-#             utilisateur = serializer.save()
-
-#             # Générer les tokens JWT
-#             refresh = RefreshToken.for_user(utilisateur)
-#             user_serializer = UtilisateurSerializer(utilisateur)
-#             user_data = user_serializer.data
-
-#             return Response({
-#                 'refresh': str(refresh),
-#                 'access': str(refresh.access_token),
-#                 # ✅ 'user' pou match ak React
-#                 'user': user_data,
-#                 'tenant': user_data.get('hopital_detail'),
-#                 'message': 'Inscription réussie'
-#             }, status=status.HTTP_201_CREATED)
-
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

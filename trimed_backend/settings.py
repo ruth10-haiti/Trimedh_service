@@ -193,7 +193,10 @@ ANYMAIL = {
     "SENDINBLUE_API_KEY": config('BREVO_API_KEY', default=''),
 }
 
+# Dans settings.py
 
+# URL du frontend (pour les liens de vérification email)
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')  # Valeur par défaut pour le développement
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
