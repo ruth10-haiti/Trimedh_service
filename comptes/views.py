@@ -207,10 +207,10 @@ class InscriptionView(APIView):
             utilisateur = serializer.save()
             temp_password = serializer.temp_password
 
-            # Générer le lien de vérification
+            # Générer le lien de vérification vers le FRONTEND (PC 2)
             uid = urlsafe_base64_encode(force_bytes(utilisateur.pk))
             token = account_activation_token.make_token(utilisateur)
-            verification_link = f"{settings.BACKEND_URL}/api/comptes/verify-email/?uidb64={uid}&token={token}"
+            verification_link = f"{settings.FRONTEND_URL}/verifier-email?uidb64={uid}&token={token}"
 
             # Envoyer l'email
             subject = "Activez votre compte TRIMED"

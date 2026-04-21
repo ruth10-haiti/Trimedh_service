@@ -185,16 +185,14 @@ if not DEBUG:
 
 CORS_ALLOW_CREDENTIALS = True
 
-# EMAIL_BACKEND = "anymail.backends.brevo.EmailBackend"
+# Configuration Email (Brevo/Sendinblue)
 EMAIL_BACKEND = "anymail.backends.sendinblue.EmailBackend"
-DEFAULT_FROM_EMAIL = 'trimedhaiti@gmail.com'
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='trimedhaiti@gmail.com')
 
-# ANYMAIL = {
-#     "BREVO_API_KEY": os.getenv('BREVO_API_KEY'),
-# }
 ANYMAIL = {
-    "SENDINBLUE_API_KEY": os.getenv('BREVO_API_KEY'),  
+    "SENDINBLUE_API_KEY": config('BREVO_API_KEY', default=''),
 }
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
