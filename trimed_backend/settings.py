@@ -14,6 +14,8 @@ from pathlib import Path
 from datetime import timedelta
 import dj_database_url
 from decouple import config
+from dotenv import load_dotenv
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -50,6 +52,7 @@ INSTALLED_APPS = [
     'drf_yasg',
     'django_filters',
     'django_extensions',
+    'anymail',
 
     'gestion_tenants',
     'comptes',
@@ -181,6 +184,14 @@ if not DEBUG:
     )
 
 CORS_ALLOW_CREDENTIALS = True
+
+# Configuration Email (Brevo/Sendinblue)
+EMAIL_BACKEND = "anymail.backends.sendinblue.EmailBackend"
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='trimedhaiti@gmail.com')
+
+ANYMAIL = {
+    "SENDINBLUE_API_KEY": config('BREVO_API_KEY', default=''),
+}
 
 
 # Static files (CSS, JavaScript, Images)

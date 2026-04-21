@@ -1,3 +1,12 @@
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
+from .tokens import account_activation_token
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.conf import settings
+from .tokens import account_activation_token
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -189,30 +198,91 @@ class LogoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-
 class InscriptionView(APIView):
-    """Vue pour l'inscription des hôpitaux"""
-
     permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = InscriptionSerializer(data=request.data)
-
         if serializer.is_valid():
             utilisateur = serializer.save()
+            temp_password = serializer.temp_password
 
-            # Générer les tokens JWT
-            refresh = RefreshToken.for_user(utilisateur)
-            user_serializer = UtilisateurSerializer(utilisateur)
-            user_data = user_serializer.data
+            # Générer le lien de vérification vers le FRONTEND (PC 2)
+            uid = urlsafe_base64_encode(force_bytes(utilisateur.pk))
+            token = account_activation_token.make_token(utilisateur)
+            verification_link = f"{settings.FRONTEND_URL}/verifier-email?uidb64={uid}&token={token}"
 
+            # Envoyer l'email
+            subject = "Activez votre compte TRIMED"
+            html_message = render_to_string('emails/verification_email.html', {
+                'user': utilisateur,
+                'temp_password': temp_password,
+                'verification_link': verification_link,
+            })
+            plain_message = f"Bonjour {utilisateur.nom_complet},\n\nVotre mot de passe temporaire : {temp_password}\n\nActivez votre compte : {verification_link}"
+
+            send_mail(
+                subject,
+                plain_message,
+                settings.DEFAULT_FROM_EMAIL,
+                [utilisateur.email],
+                html_message=html_message,
+                fail_silently=False,
+            )
+
+            # On ne renvoie pas de token JWT ici car le compte n'est pas actif
             return Response({
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-                # ✅ 'user' pou match ak React
-                'user': user_data,
-                'tenant': user_data.get('hopital_detail'),
-                'message': 'Inscription réussie'
+                'message': 'Inscription réussie. Vérifiez votre email pour activer votre compte.',
             }, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class VerifyEmailView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        uidb64 = request.GET.get('uidb64')
+        token = request.GET.get('token')
+
+        if not uidb64 or not token:
+            return Response({"error": "Paramètres manquants."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            utilisateur = Utilisateur.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, Utilisateur.DoesNotExist):
+            utilisateur = None
+
+        if utilisateur and account_activation_token.check_token(utilisateur, token):
+            utilisateur.is_active = True
+            utilisateur.save()
+            return Response({"message": "Email vérifié avec succès ! Vous pouvez maintenant vous connecter."})
+        else:
+            return Response({"error": "Lien invalide ou expiré."}, status=status.HTTP_400_BAD_REQUEST)
+
+# class InscriptionView(APIView):
+#     """Vue pour l'inscription des hôpitaux"""
+
+#     permission_classes = [AllowAny]
+
+#     def post(self, request):
+#         serializer = InscriptionSerializer(data=request.data)
+
+#         if serializer.is_valid():
+#             utilisateur = serializer.save()
+
+#             # Générer les tokens JWT
+#             refresh = RefreshToken.for_user(utilisateur)
+#             user_serializer = UtilisateurSerializer(utilisateur)
+#             user_data = user_serializer.data
+
+#             return Response({
+#                 'refresh': str(refresh),
+#                 'access': str(refresh.access_token),
+#                 # ✅ 'user' pou match ak React
+#                 'user': user_data,
+#                 'tenant': user_data.get('hopital_detail'),
+#                 'message': 'Inscription réussie'
+#             }, status=status.HTTP_201_CREATED)
+
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

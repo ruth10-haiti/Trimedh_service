@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView, TokenVerifyView
+from .views import VerifyEmailView
 from .views import (
     UtilisateurViewSet, LoginView, LogoutView,
     InscriptionView
@@ -18,4 +19,5 @@ urlpatterns = [
     path('logout/', LogoutView.as_view(), name='logout'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('token/verify/', TokenVerifyView.as_view(), name='token_verify'),
+    path('verify-email/', VerifyEmailView.as_view(), name='verify_email'),
 ]
