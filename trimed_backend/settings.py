@@ -106,12 +106,25 @@ WSGI_APPLICATION = 'trimed_backend.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 # Database configuration
-DATABASES = {
-    'default': dj_database_url.config(
-        default=config('DATABASE_URL', default='postgresql://localhost:5432/Trimed_BD'),
-        conn_max_age=600
-    )
-}
+# Si vous avez une variable d'environnement DATABASE_URL, utilisez-la
+# Sinon, pour le développement local, utilisez SQLite
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+if DATABASE_URL:
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=600,
+            ssl_require=True   
+        )
+    }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Modèle d'utilisateur personnalisé
@@ -193,10 +206,7 @@ ANYMAIL = {
     "SENDINBLUE_API_KEY": config('BREVO_API_KEY', default=''),
 }
 
-# Dans settings.py
 
-# URL du frontend (pour les liens de vérification email)
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')  # Valeur par défaut pour le développement
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
