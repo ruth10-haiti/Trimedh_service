@@ -51,7 +51,7 @@ urlpatterns = [
     path('api/medicaments/', include('gestion_medicaments.urls')),
     path('api/rendez-vous/', include('rendez_vous.urls')),
     path('api/facturation/', include('facturation.urls')),
-    path('api/notifications/', include('notifications.urls')),    # ... autres inclusions
+    path('api/notifications/', include('notifications.urls')),    
     path('api/hospitalisation/', include('hospitalisation.urls')),
     path('api/salles/', include('salles.urls')),
 ]
