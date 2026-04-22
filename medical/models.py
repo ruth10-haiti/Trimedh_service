@@ -142,6 +142,7 @@ class Consultation(models.Model):
         on_delete=models.CASCADE,
         db_column='tenant_id'
     )
+    # Champ patient décommenté et utilisant une chaîne pour éviter l'import circulaire
     patient = models.ForeignKey(
         'patients.Patient',
         on_delete=models.CASCADE,
